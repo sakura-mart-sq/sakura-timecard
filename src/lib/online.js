@@ -37,7 +37,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
-  const [staffResult, shiftResult, punchResult] = await Promise.all([
+  const [staffResult, shiftResult, punchResult, payrollResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active").order("name"),
     client
       .from("shifts")
@@ -52,16 +52,23 @@ export async function fetchManagerSnapshot(client, weekStart) {
       .gte("clock_in", start)
       .lt("clock_in", end)
       .order("clock_in"),
+    client
+      .from("payrolls")
+      .select("id, staff_id, period_start, period_end, total_minutes, total_pay, status, finalized_at")
+      .eq("period_start", weekStart)
+      .eq("period_end", weekEnd),
   ]);
 
   if (staffResult.error) throw staffResult.error;
   if (shiftResult.error) throw shiftResult.error;
   if (punchResult.error) throw punchResult.error;
+  if (payrollResult.error) throw payrollResult.error;
 
   return {
     staff: (staffResult.data || []).map(toStaff),
     shifts: (shiftResult.data || []).map(toShift),
     punches: (punchResult.data || []).map(toPunch),
+    payrolls: payrollResult.data || [],
     weekStart,
     weekEnd,
     loadedAt: new Date(),
@@ -149,5 +156,22 @@ export async function saveOnlinePunch(client, form) {
     ? client.from("punches").update(payload).eq("id", form.id)
     : client.from("punches").insert(payload);
   const { error } = await query;
+  if (error) throw error;
+}
+
+export async function saveOnlinePayroll(client, row, periodStart, periodEnd, status, userId) {
+  const payload = {
+    staff_id: row.person.id,
+    period_start: periodStart,
+    period_end: periodEnd,
+    total_minutes: Math.round(row.minutes),
+    total_pay: Number(row.pay.toFixed(2)),
+    status,
+    finalized_by: status === "finalized" || status === "published" ? userId : null,
+    finalized_at: status === "finalized" || status === "published" ? new Date().toISOString() : null,
+  };
+  const { error } = await client
+    .from("payrolls")
+    .upsert(payload, { onConflict: "staff_id,period_start,period_end" });
   if (error) throw error;
 }

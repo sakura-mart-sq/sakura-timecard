@@ -39,6 +39,7 @@ import {
   onlinePayrollRows,
   onlinePunchRows,
   saveOnlinePunch,
+  saveOnlinePayroll,
   saveOnlineShift,
   saveOnlineStaff,
 } from "./lib/online.js";
@@ -335,6 +336,23 @@ export default function App() {
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "勤務記録を保存できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlinePayroll(row, status) {
+    if (!supabase || !onlineSnapshot || !onlineSession) return;
+    try {
+      await saveOnlinePayroll(
+        supabase,
+        row,
+        onlineSnapshot.weekStart,
+        onlineSnapshot.weekEnd,
+        status,
+        onlineSession.user.id,
+      );
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "給与データを保存できませんでした。");
     }
   }
 
@@ -645,6 +663,7 @@ export default function App() {
             onEditStaff={openOnlineStaffDialog}
             onAddPunch={() => openOnlinePunchDialog()}
             onEditPunch={openOnlinePunchDialog}
+            onSavePayroll={handleSaveOnlinePayroll}
             onRefresh={refreshOnlineData}
           />
         ) : null}
@@ -1127,7 +1146,7 @@ export default function App() {
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll }) {
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   return (
@@ -1200,10 +1219,17 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
             <h3>給与計算（表示中の週）</h3>
             <div className="online-payroll-table">
               {onlinePayrollRows(data).map((row) => (
-                <div className="online-staff-row" key={row.person.id}>
+                <div className="online-staff-row online-payroll-row" key={row.person.id}>
                   <span>{row.person.name}</span>
                   <span>{row.hours.toFixed(2)}時間</span>
                   <strong>{row.pay.toFixed(2)}</strong>
+                  {(() => {
+                    const saved = data.payrolls.find((payroll) => payroll.staff_id === row.person.id);
+                    const status = saved?.status || "未保存";
+                    const nextStatus = status === "未保存" ? "calculated" : status === "calculated" ? "finalized" : status === "finalized" ? "published" : "published";
+                    const label = status === "未保存" ? "保存" : status === "calculated" ? "確定" : status === "finalized" ? "公開" : "公開済み";
+                    return <button className="compact-edit ghost" disabled={status === "published"} onClick={() => onSavePayroll(row, nextStatus)} type="button">{label}</button>;
+                  })()}
                 </div>
               ))}
             </div>

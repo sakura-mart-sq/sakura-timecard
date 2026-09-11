@@ -8,6 +8,7 @@ function queryResult(data, error = null) {
     gte: vi.fn(() => query),
     lte: vi.fn(() => query),
     lt: vi.fn(() => query),
+    eq: vi.fn(() => query),
     then: (resolve) => Promise.resolve({ data, error }).then(resolve),
   };
   return query;
