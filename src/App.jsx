@@ -43,7 +43,7 @@ import {
   saveOnlineShift,
   saveOnlineStaff,
 } from "./lib/online.js";
-import { supabase, supabaseConfigured } from "./lib/supabase.js";
+import { supabase, supabaseConfigured, supabaseMode } from "./lib/supabase.js";
 import {
   addDays,
   dateKey,
@@ -635,12 +635,12 @@ export default function App() {
           <div className="online-bar" role="status">
             {onlineSession && onlineRole === "manager" ? (
               <>
-                <span>Online manager: {onlineSession.user.email}</span>
+                <span>{supabaseMode === "test" ? "TEST / " : ""}Online manager: {onlineSession.user.email}</span>
                 <button className="ghost" onClick={handleOnlineLogout} type="button">ログアウト</button>
               </>
             ) : (
               <>
-                <span>オンライン管理画面</span>
+                <span>{supabaseMode === "test" ? "テスト用オンライン管理画面" : "オンライン管理画面"}</span>
                 <button onClick={() => {
                   setOnlineAuthError("");
                   setShowOnlineLogin(true);

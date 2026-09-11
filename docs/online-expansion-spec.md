@@ -250,6 +250,8 @@ devices     管理者のみ
 - Supabase Authによる管理者ログイン
 - GitHub PagesのActionsビルド・デプロイ
 - GitHub Actionsの `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 設定
+- GitHub Actionsのテスト用Supabase Variables設定
+- `?mode=test`によるテスト用Supabase接続の切り替え
 - Supabase上のスタッフ一覧表示・追加・編集
 - Supabase上の週次シフト表示・追加・編集
 - Supabase上の勤務実績表示・追加・修正
@@ -263,6 +265,7 @@ devices     管理者のみ
 - 管理者オンライン画面は現在、スタッフ、シフト、勤務実績、給与集計をSupabaseから扱えます。給与は週単位で `calculated`、`finalized`、`published` の順に保存できます。
 - オンラインで追加したスタッフ・シフト・勤務実績はSupabaseに保存されますが、店舗タブレットのlocalStorageデータにはまだ反映されません。
 - Supabase Authの管理者ログインは実装済みですが、スタッフ向けログイン画面は未実装です。
+- テストモードは本番と同じPages URLのクエリで切り替えます。通常URLは本番DB、`?mode=test`はテストDBを使用し、Authセッションも分離します。
 
 #### 未着手
 
@@ -275,6 +278,17 @@ devices     管理者のみ
 - localStorageからSupabaseへの本番データ移行
 
 現時点では、オンライン管理画面と店舗タブレットを同時に本番運用しません。データソースがSupabaseとlocalStorageに分かれるため、店舗打刻のSupabase連携が完了してから本番切り替えを行います。
+
+### テストモードの利用
+
+本番PagesのURLに `?mode=test` を付けると、テスト用Supabaseへ接続します。
+
+~~~text
+本番: https://sakura-mart-sq.github.io/sakura-timecard/
+テスト: https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
+~~~
+
+テストモードはURLを知っている人なら開けるため、URL自体を認証手段にはしません。テスト用プロジェクトには本番データを入れず、テスト用Authユーザーだけを登録します。
 
 ### Phase 0: 基盤準備
 
