@@ -16,6 +16,13 @@ create table public.staff (
   updated_at timestamptz not null default now()
 );
 
+create table public.staff_codes (
+  staff_id uuid primary key references public.staff(id) on delete cascade,
+  code text not null unique check (code ~ '^[0-9]{5}$'),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role public.app_role not null default 'staff',
@@ -125,7 +132,7 @@ declare
   table_name text;
 begin
   foreach table_name in array array[
-    'staff', 'profiles', 'shifts', 'shift_requests', 'shift_swaps',
+    'staff', 'staff_codes', 'profiles', 'shifts', 'shift_requests', 'shift_swaps',
     'punches', 'payrolls', 'registered_devices'
   ] loop
     execute format(
@@ -161,6 +168,7 @@ as $$
 $$;
 
 alter table public.staff enable row level security;
+alter table public.staff_codes enable row level security;
 alter table public.profiles enable row level security;
 alter table public.shifts enable row level security;
 alter table public.shift_requests enable row level security;
@@ -173,6 +181,10 @@ create policy staff_read_self_or_manager on public.staff
   for select to authenticated
   using (public.is_manager() or id = public.current_staff_id());
 create policy staff_manager_write on public.staff
+  for all to authenticated
+  using (public.is_manager()) with check (public.is_manager());
+
+create policy staff_codes_manager_only on public.staff_codes
   for all to authenticated
   using (public.is_manager()) with check (public.is_manager());
 

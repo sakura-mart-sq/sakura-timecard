@@ -253,6 +253,7 @@ devices     管理者のみ
 - GitHub Actionsのテスト用Supabase Variables設定
 - `?mode=test`によるテスト用Supabase接続の切り替え
 - Supabase上のスタッフ一覧表示・追加・編集
+- 管理者専用テーブルによるスタッフコード表示・変更
 - Supabase上の週次シフト表示・追加・編集
 - Supabase上の勤務実績表示・追加・修正
 - 予定開始時刻を考慮した週次給与集計の表示
@@ -326,6 +327,12 @@ supabase/migrations/202609110003_payroll_period_unique.sql
 
 ~~~text
 supabase/migrations/202609110004_remove_closed_shift_status.sql
+~~~
+
+スタッフコード表示を有効にするため、次のSQLを本番・テスト両方のDBで一度実行します。既存スタッフは、コード表示が「未設定」の場合にオンライン管理画面からコードを再設定します。
+
+~~~text
+supabase/migrations/202609110005_staff_codes.sql
 ~~~
 
 この段階では、店舗タブレットがまだlocalStorageを使っている場合、オンライン管理画面と店舗端末のデータが分離します。実運用で混在させず、開発用データまたは移行後のテスト環境で確認します。

@@ -1211,6 +1211,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <span>{person.name}</span>
                 <span>{person.active ? "有効" : "停止中"}</span>
                 <span>{person.wage.toFixed(2)} / 時間</span>
+                <span>コード {person.code || "未設定"}</span>
                 <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
