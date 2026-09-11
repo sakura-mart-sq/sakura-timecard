@@ -34,6 +34,7 @@ import {
   upsertStaff,
 } from "./lib/model.js";
 import { loadState, saveState } from "./lib/storage.js";
+import { fetchManagerSnapshot } from "./lib/online.js";
 import { supabase, supabaseConfigured } from "./lib/supabase.js";
 import {
   addDays,
@@ -110,6 +111,10 @@ export default function App() {
   const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
   const [onlineAuthError, setOnlineAuthError] = useState("");
   const [showOnlineLogin, setShowOnlineLogin] = useState(false);
+  const [onlineSnapshot, setOnlineSnapshot] = useState(null);
+  const [onlineDataLoading, setOnlineDataLoading] = useState(false);
+  const [onlineDataError, setOnlineDataError] = useState("");
+  const [onlineWeekStart, setOnlineWeekStart] = useState(() => mondayOf(dateKey(new Date())));
 
   useEffect(() => {
     saveState(state);
@@ -202,7 +207,25 @@ export default function App() {
     await supabase.auth.signOut();
     setOnlineSession(null);
     setOnlineRole("");
+    setOnlineSnapshot(null);
   }
+
+  async function refreshOnlineData() {
+    if (!supabase || onlineRole !== "manager") return;
+    setOnlineDataLoading(true);
+    setOnlineDataError("");
+    try {
+      setOnlineSnapshot(await fetchManagerSnapshot(supabase, onlineWeekStart));
+    } catch (error) {
+      setOnlineDataError(error?.message || "オンラインデータを読み込めませんでした。");
+    } finally {
+      setOnlineDataLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (onlineRole === "manager") refreshOnlineData();
+  }, [onlineRole, onlineWeekStart]);
 
   const today = dateKey(now);
   const weeklyDates = useMemo(() => weekDates(shiftWeekStart), [shiftWeekStart]);
@@ -479,6 +502,17 @@ export default function App() {
               </>
             )}
           </div>
+        ) : null}
+
+        {onlineSession && onlineRole === "manager" ? (
+          <OnlineManagerPanel
+            data={onlineSnapshot}
+            error={onlineDataError}
+            loading={onlineDataLoading}
+            onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
+            onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
+            onRefresh={refreshOnlineData}
+          />
         ) : null}
 
         <main>
@@ -915,6 +949,74 @@ export default function App() {
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+function OnlineManagerPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh }) {
+  const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
+  const dates = data ? weekDates(data.weekStart) : [];
+  return (
+    <section className="online-manager-panel" aria-labelledby="onlineManagerHeading">
+      <div className="online-manager-heading">
+        <div>
+          <p className="eyebrow">SUPABASE ONLINE</p>
+          <h2 id="onlineManagerHeading">オンライン管理画面</h2>
+        </div>
+        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">
+          {loading ? "読み込み中..." : "更新"}
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {!data && loading ? <p className="empty">Supabaseからデータを読み込んでいます。</p> : null}
+      {data ? (
+        <>
+          <div className="online-week-controls">
+            <button aria-label="オンラインの前の週" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+            <strong>{weekDayLabel(data.weekStart, "ja")} - {weekDayLabel(data.weekEnd, "ja")}</strong>
+            <button aria-label="オンラインの次の週" className="ghost" onClick={onNextWeek} type="button">›</button>
+          </div>
+          <div className="online-summary">
+            <span>スタッフ {data.staff.length}名</span>
+            <span>シフト {data.shifts.length}件</span>
+            <span>取得 {dateTimeLabel(data.loadedAt)}</span>
+          </div>
+          <div className="online-table-wrap">
+            <table className="online-table">
+              <thead>
+                <tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th></tr>
+              </thead>
+              <tbody>
+                {dates.map((date) => {
+                  const shifts = data.shifts.filter((shift) => shift.date === date);
+                  if (!shifts.length) {
+                    return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="4" className="muted-cell">シフトなし</td></tr>;
+                  }
+                  return shifts.map((shift) => (
+                    <tr key={shift.id}>
+                      <td>{weekDayLabel(date, "ja")}</td>
+                      <td>{staffById.get(shift.staffId)?.name || "未登録"}</td>
+                      <td>{displayShiftLabel(shift)}</td>
+                      <td>{shift.status === "published" ? "公開" : shift.status === "closed" ? "締切" : "下書き"}</td>
+                      <td>{shift.note || ""}</td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="online-staff-list">
+            <h3>スタッフ</h3>
+            {data.staff.length ? data.staff.map((person) => (
+              <div className="online-staff-row" key={person.id}>
+                <span>{person.name}</span>
+                <span>{person.active ? "有効" : "停止中"}</span>
+                <span>{person.wage.toFixed(2)} / 時間</span>
+              </div>
+            )) : <p className="empty">スタッフはまだ登録されていません。</p>}
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }
 
