@@ -169,6 +169,13 @@ h2 {
   font-size: 13px;
 }
 
+.online-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .online-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);

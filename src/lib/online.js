@@ -45,3 +45,39 @@ export async function fetchManagerSnapshot(client, weekStart) {
     loadedAt: new Date(),
   };
 }
+
+export async function hashStaffCode(code) {
+  const bytes = new TextEncoder().encode(code);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export async function saveOnlineStaff(client, form) {
+  const payload = {
+    name: form.name.trim(),
+    hourly_wage: Number(form.wage),
+    active: form.active !== false,
+  };
+  if (form.code) payload.staff_code_hash = await hashStaffCode(form.code.trim());
+  const query = form.id
+    ? client.from("staff").update(payload).eq("id", form.id)
+    : client.from("staff").insert(payload);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+export async function saveOnlineShift(client, form) {
+  const payload = {
+    work_date: form.date,
+    staff_id: form.staffId,
+    start_minute: Number(form.start),
+    end_minute: Number(form.end),
+    note: form.note?.trim() || "",
+    status: form.status || "published",
+  };
+  const query = form.id
+    ? client.from("shifts").update(payload).eq("id", form.id)
+    : client.from("shifts").insert(payload);
+  const { error } = await query;
+  if (error) throw error;
+}

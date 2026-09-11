@@ -34,7 +34,7 @@ import {
   upsertStaff,
 } from "./lib/model.js";
 import { loadState, saveState } from "./lib/storage.js";
-import { fetchManagerSnapshot } from "./lib/online.js";
+import { fetchManagerSnapshot, saveOnlineShift, saveOnlineStaff } from "./lib/online.js";
 import { supabase, supabaseConfigured } from "./lib/supabase.js";
 import {
   addDays,
@@ -77,6 +77,17 @@ const emptyStaffForm = () => ({
   code: "",
 });
 
+const emptyOnlineStaffForm = () => ({ id: "", name: "", wage: "17.40", code: "", active: true });
+const emptyOnlineShiftForm = (date, staffId = "") => ({
+  id: "",
+  date,
+  staffId,
+  start: "09:00",
+  end: "17:00",
+  note: "",
+  status: "published",
+});
+
 export default function App() {
   const [state, setState] = useState(() => loadState());
   const [view, setView] = useState("staff");
@@ -115,6 +126,10 @@ export default function App() {
   const [onlineDataLoading, setOnlineDataLoading] = useState(false);
   const [onlineDataError, setOnlineDataError] = useState("");
   const [onlineWeekStart, setOnlineWeekStart] = useState(() => mondayOf(dateKey(new Date())));
+  const [onlineStaffForm, setOnlineStaffForm] = useState(emptyOnlineStaffForm);
+  const [onlineShiftForm, setOnlineShiftForm] = useState(() => emptyOnlineShiftForm(dateKey(new Date())));
+  const [showOnlineStaffDialog, setShowOnlineStaffDialog] = useState(false);
+  const [showOnlineShiftDialog, setShowOnlineShiftDialog] = useState(false);
 
   useEffect(() => {
     saveState(state);
@@ -208,6 +223,64 @@ export default function App() {
     setOnlineSession(null);
     setOnlineRole("");
     setOnlineSnapshot(null);
+  }
+
+  function openOnlineStaffDialog(person = null) {
+    setOnlineStaffForm(person ? {
+      id: person.id,
+      name: person.name,
+      wage: person.wage.toFixed(2),
+      code: "",
+      active: person.active,
+    } : emptyOnlineStaffForm());
+    setShowOnlineStaffDialog(true);
+  }
+
+  function openOnlineShiftDialog(shift = null) {
+    setOnlineShiftForm(shift ? {
+      id: shift.id,
+      date: shift.date,
+      staffId: shift.staffId,
+      start: minutesToTime(shift.start),
+      end: minutesToTime(shift.end),
+      note: shift.note,
+      status: shift.status,
+    } : emptyOnlineShiftForm(onlineWeekStart, onlineSnapshot?.staff[0]?.id || ""));
+    setShowOnlineShiftDialog(true);
+  }
+
+  async function handleSaveOnlineStaff(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    if (!onlineStaffForm.id && !/^\d{5}$/.test(onlineStaffForm.code.trim())) {
+      setOnlineDataError("新規スタッフのコードは5桁の数字にしてください。");
+      return;
+    }
+    try {
+      await saveOnlineStaff(supabase, onlineStaffForm);
+      setShowOnlineStaffDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "スタッフを保存できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlineShift(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const start = timeToMinutes(onlineShiftForm.start);
+    const end = timeToMinutes(onlineShiftForm.end);
+    if (!onlineShiftForm.staffId || end <= start) {
+      setOnlineDataError("スタッフと正しい勤務時間を指定してください。");
+      return;
+    }
+    try {
+      await saveOnlineShift(supabase, { ...onlineShiftForm, start, end });
+      setShowOnlineShiftDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフトを保存できませんでした。");
+    }
   }
 
   async function refreshOnlineData() {
@@ -511,6 +584,10 @@ export default function App() {
             loading={onlineDataLoading}
             onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
             onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
+            onAddShift={() => openOnlineShiftDialog()}
+            onAddStaff={() => openOnlineStaffDialog()}
+            onEditShift={openOnlineShiftDialog}
+            onEditStaff={openOnlineStaffDialog}
             onRefresh={refreshOnlineData}
           />
         ) : null}
@@ -788,6 +865,34 @@ export default function App() {
         </Dialog>
       ) : null}
 
+      {showOnlineStaffDialog ? (
+        <Dialog onClose={() => setShowOnlineStaffDialog(false)} title="オンラインスタッフ管理">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineStaff}>
+            <h2>{onlineStaffForm.id ? "スタッフ変更" : "スタッフ追加"}</h2>
+            <label className="field"><span>名前</span><input required value={onlineStaffForm.name} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label className="field"><span>時給</span><input min="0" required step="0.01" type="number" value={onlineStaffForm.wage} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, wage: event.target.value }))} /></label>
+            <label className="field"><span>{onlineStaffForm.id ? "新しいスタッフコード（変更時のみ）" : "スタッフコード"}</span><input inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required={!onlineStaffForm.id} value={onlineStaffForm.code} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, code: event.target.value }))} /></label>
+            <label className="checkbox-field"><input checked={onlineStaffForm.active} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, active: event.target.checked }))} type="checkbox" /><span>有効</span></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showOnlineShiftDialog ? (
+        <Dialog onClose={() => setShowOnlineShiftDialog(false)} title="オンラインシフト管理">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineShift}>
+            <h2>{onlineShiftForm.id ? "シフト変更" : "シフト追加"}</h2>
+            <label className="field"><span>日付</span><input required type="date" value={onlineShiftForm.date} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, date: event.target.value }))} /></label>
+            <label className="field"><span>スタッフ</span><select required value={onlineShiftForm.staffId} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, staffId: event.target.value }))}><option value="">選択してください</option>{(onlineSnapshot?.staff || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <label className="field"><span>開始</span><TimeSelect stepMinutes={15} value={onlineShiftForm.start} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, start: value }))} /></label>
+            <label className="field"><span>終了</span><TimeSelect stepMinutes={15} value={onlineShiftForm.end} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, end: value }))} /></label>
+            <label className="field"><span>備考</span><input value={onlineShiftForm.note} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <label className="field"><span>状態</span><select value={onlineShiftForm.status} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, status: event.target.value }))}><option value="draft">下書き</option><option value="published">公開</option><option value="closed">締切</option></select></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineShiftDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
       {showShiftDialog ? (
         <Dialog onClose={() => setShowShiftDialog(false)} title="シフト追加">
           <form className="dialog-panel" onSubmit={handleSaveShift}>
@@ -952,7 +1057,7 @@ export default function App() {
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh }) {
+function OnlineManagerPanel({ data, error, loading, onAddShift, onAddStaff, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh }) {
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   return (
@@ -980,16 +1085,20 @@ function OnlineManagerPanel({ data, error, loading, onNextWeek, onPreviousWeek, 
             <span>シフト {data.shifts.length}件</span>
             <span>取得 {dateTimeLabel(data.loadedAt)}</span>
           </div>
+          <div className="online-actions">
+            <button onClick={onAddShift} type="button">シフト追加</button>
+            <button className="secondary" onClick={onAddStaff} type="button">スタッフ追加</button>
+          </div>
           <div className="online-table-wrap">
             <table className="online-table">
               <thead>
-                <tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th></tr>
+                <tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th><th>操作</th></tr>
               </thead>
               <tbody>
                 {dates.map((date) => {
                   const shifts = data.shifts.filter((shift) => shift.date === date);
                   if (!shifts.length) {
-                    return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="4" className="muted-cell">シフトなし</td></tr>;
+                    return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="5" className="muted-cell">シフトなし</td></tr>;
                   }
                   return shifts.map((shift) => (
                     <tr key={shift.id}>
@@ -998,6 +1107,7 @@ function OnlineManagerPanel({ data, error, loading, onNextWeek, onPreviousWeek, 
                       <td>{displayShiftLabel(shift)}</td>
                       <td>{shift.status === "published" ? "公開" : shift.status === "closed" ? "締切" : "下書き"}</td>
                       <td>{shift.note || ""}</td>
+                      <td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td>
                     </tr>
                   ));
                 })}
@@ -1011,6 +1121,7 @@ function OnlineManagerPanel({ data, error, loading, onNextWeek, onPreviousWeek, 
                 <span>{person.name}</span>
                 <span>{person.active ? "有効" : "停止中"}</span>
                 <span>{person.wage.toFixed(2)} / 時間</span>
+                <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
           </div>
