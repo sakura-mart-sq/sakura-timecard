@@ -98,6 +98,141 @@ h2 {
   box-shadow: 0 4px 0 rgb(36 127 184 / 0.13);
 }
 
+.online-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 48px;
+  margin-bottom: 18px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.82);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.online-bar button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.online-manager-panel {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.online-manager-heading,
+.online-week-controls,
+.online-summary,
+.online-staff-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.online-manager-heading {
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.online-manager-heading h2 {
+  margin-top: 4px;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.online-week-controls {
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.online-week-controls button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 22px;
+}
+
+.online-summary {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.online-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.online-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+}
+
+.online-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.online-table th,
+.online-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.online-table th {
+  background: var(--green-soft);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.online-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.muted-cell {
+  color: var(--muted);
+}
+
+.online-staff-list {
+  margin-top: 18px;
+}
+
+.online-staff-list h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.online-staff-row {
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.online-staff-row span:first-child {
+  margin-right: auto;
+  color: var(--ink);
+  font-weight: 800;
+}
+
 .tab {
   background: transparent;
   color: var(--muted);
@@ -758,6 +893,7 @@ select {
   }
 
   .tabs,
+  .online-bar,
   .staff-form,
   .code-form,
   .passcode-form,
@@ -768,9 +904,24 @@ select {
     grid-template-columns: 1fr;
   }
 
-.tabs {
+  .tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .online-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .online-manager-heading,
+  .online-staff-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .online-staff-row span:first-child {
+    margin-right: 0;
   }
 
   .list-row {

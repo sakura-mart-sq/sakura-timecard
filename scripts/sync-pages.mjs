@@ -12,6 +12,7 @@ if (existsSync(rootAssets)) {
 
 mkdirSync(rootAssets, { recursive: true });
 cpSync(distAssets, rootAssets, { recursive: true });
+cpSync(resolve(root, "index.html"), resolve(dist, "index.html"));
 cpSync(resolve(dist, "manifest.webmanifest"), resolve(root, "manifest.webmanifest"));
 cpSync(resolve(dist, "sw.js"), resolve(root, "sw.js"));
 cpSync(resolve(dist, "icon.svg"), resolve(root, "icon.svg"));
