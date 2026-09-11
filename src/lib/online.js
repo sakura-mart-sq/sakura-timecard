@@ -1,4 +1,4 @@
-import { addDays } from "./time.js";
+import { addDays, dateTimeFromDateKeyAndMinutes, dateTimeFromFields, dateKey, timeLabel } from "./time.js";
 
 function toShift(row) {
   return {
@@ -21,9 +21,23 @@ function toStaff(row) {
   };
 }
 
+function toPunch(row) {
+  return {
+    id: row.id,
+    staffId: row.staff_id,
+    shiftId: row.shift_id,
+    scheduledStaffId: row.scheduled_staff_id,
+    startAt: row.clock_in,
+    endAt: row.clock_out,
+    payrollFromActualStart: row.payroll_from_actual_start,
+  };
+}
+
 export async function fetchManagerSnapshot(client, weekStart) {
   const weekEnd = addDays(weekStart, 6);
-  const [staffResult, shiftResult] = await Promise.all([
+  const start = dateTimeFromFields(weekStart, "00:00").toISOString();
+  const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
+  const [staffResult, shiftResult, punchResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active").order("name"),
     client
       .from("shifts")
@@ -32,18 +46,56 @@ export async function fetchManagerSnapshot(client, weekStart) {
       .lte("work_date", weekEnd)
       .order("work_date")
       .order("start_minute"),
+    client
+      .from("punches")
+      .select("id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start")
+      .gte("clock_in", start)
+      .lt("clock_in", end)
+      .order("clock_in"),
   ]);
 
   if (staffResult.error) throw staffResult.error;
   if (shiftResult.error) throw shiftResult.error;
+  if (punchResult.error) throw punchResult.error;
 
   return {
     staff: (staffResult.data || []).map(toStaff),
     shifts: (shiftResult.data || []).map(toShift),
+    punches: (punchResult.data || []).map(toPunch),
     weekStart,
     weekEnd,
     loadedAt: new Date(),
   };
+}
+
+export function onlinePayrollRows(snapshot) {
+  return (snapshot?.staff || []).map((person) => {
+    const minutes = (snapshot.punches || []).reduce((total, punch) => {
+      if (punch.staffId !== person.id || !punch.endAt) return total;
+      let paidStart = new Date(punch.startAt);
+      const ended = new Date(punch.endAt);
+      if (!punch.payrollFromActualStart) {
+        const shift = snapshot.shifts.find((item) => item.id === punch.shiftId);
+        if (shift) {
+          const scheduledStart = dateTimeFromDateKeyAndMinutes(shift.date, shift.start);
+          if (scheduledStart > paidStart) paidStart = scheduledStart;
+        }
+      }
+      return total + Math.max(0, (ended - paidStart) / 60000);
+    }, 0);
+    return { person, minutes, hours: minutes / 60, pay: (minutes / 60) * person.wage };
+  });
+}
+
+export function onlinePunchRows(snapshot) {
+  const staffById = new Map((snapshot?.staff || []).map((person) => [person.id, person]));
+  return [...(snapshot?.punches || [])].sort((a, b) => new Date(b.startAt) - new Date(a.startAt)).map((punch) => ({
+    ...punch,
+    staff: staffById.get(punch.staffId)?.name || "未登録",
+    date: dateKey(new Date(punch.startAt)),
+    start: timeLabel(new Date(punch.startAt)),
+    end: punch.endAt ? timeLabel(new Date(punch.endAt)) : "勤務中",
+  }));
 }
 
 export async function hashStaffCode(code) {
@@ -78,6 +130,24 @@ export async function saveOnlineShift(client, form) {
   const query = form.id
     ? client.from("shifts").update(payload).eq("id", form.id)
     : client.from("shifts").insert(payload);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+export async function saveOnlinePunch(client, form) {
+  const payload = {
+    staff_id: form.staffId,
+    shift_id: form.shiftId || null,
+    scheduled_staff_id: form.scheduledStaffId || form.staffId,
+    clock_in: dateTimeFromFields(form.startDate, form.startTime).toISOString(),
+    clock_out: form.endDate && form.endTime
+      ? dateTimeFromFields(form.endDate, form.endTime).toISOString()
+      : null,
+    payroll_from_actual_start: Boolean(form.payrollFromActualStart),
+  };
+  const query = form.id
+    ? client.from("punches").update(payload).eq("id", form.id)
+    : client.from("punches").insert(payload);
   const { error } = await query;
   if (error) throw error;
 }
