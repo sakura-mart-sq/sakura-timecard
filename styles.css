@@ -98,6 +98,26 @@ h2 {
   box-shadow: 0 4px 0 rgb(36 127 184 / 0.13);
 }
 
+.online-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 48px;
+  margin-bottom: 18px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.82);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.online-bar button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
 .tab {
   background: transparent;
   color: var(--muted);
@@ -758,6 +778,7 @@ select {
   }
 
   .tabs,
+  .online-bar,
   .staff-form,
   .code-form,
   .passcode-form,
@@ -768,9 +789,14 @@ select {
     grid-template-columns: 1fr;
   }
 
-.tabs {
+  .tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .online-bar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .list-row {

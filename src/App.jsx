@@ -34,6 +34,7 @@ import {
   upsertStaff,
 } from "./lib/model.js";
 import { loadState, saveState } from "./lib/storage.js";
+import { supabase, supabaseConfigured } from "./lib/supabase.js";
 import {
   addDays,
   dateKey,
@@ -104,6 +105,11 @@ export default function App() {
     code: generateStaffCode(new Set()),
   }));
   const [punchForm, setPunchForm] = useState(emptyPunchForm);
+  const [onlineSession, setOnlineSession] = useState(null);
+  const [onlineRole, setOnlineRole] = useState("");
+  const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
+  const [onlineAuthError, setOnlineAuthError] = useState("");
+  const [showOnlineLogin, setShowOnlineLogin] = useState(false);
 
   useEffect(() => {
     saveState(state);
@@ -119,6 +125,84 @@ export default function App() {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      setOnlineAuthLoading(false);
+      return undefined;
+    }
+
+    let mounted = true;
+    const loadOnlineSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setOnlineSession(session);
+      if (session?.user) await loadOnlineRole(session.user.id);
+      setOnlineAuthLoading(false);
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      setOnlineSession(session);
+      if (!session) {
+        setOnlineRole("");
+        setOnlineAuthError("");
+      }
+      if (event === "SIGNED_IN") setShowOnlineLogin(false);
+    });
+    loadOnlineSession();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function loadOnlineRole(userId) {
+    if (!supabase || !userId) return "";
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("role, active")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      setOnlineAuthError("管理者プロフィールを確認できませんでした。");
+      setOnlineRole("");
+      return "";
+    }
+    const role = data?.active ? data.role : "";
+    setOnlineRole(role);
+    if (role !== "manager") {
+      setOnlineAuthError("このアカウントには管理者権限がありません。");
+      await supabase.auth.signOut();
+    }
+    return role;
+  }
+
+  async function handleOnlineLogin(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "").trim();
+    const password = String(form.get("password") || "");
+    setOnlineAuthLoading(true);
+    setOnlineAuthError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError("メールアドレスまたはパスワードを確認してください。");
+      return;
+    }
+    const role = await loadOnlineRole(data.user?.id);
+    setOnlineAuthLoading(false);
+    if (role !== "manager") return;
+    event.currentTarget.reset();
+  }
+
+  async function handleOnlineLogout() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setOnlineSession(null);
+    setOnlineRole("");
+  }
 
   const today = dateKey(now);
   const weeklyDates = useMemo(() => weekDates(shiftWeekStart), [shiftWeekStart]);
@@ -378,6 +462,25 @@ export default function App() {
           </nav>
         </header>
 
+        {supabaseConfigured ? (
+          <div className="online-bar" role="status">
+            {onlineSession && onlineRole === "manager" ? (
+              <>
+                <span>Online manager: {onlineSession.user.email}</span>
+                <button className="ghost" onClick={handleOnlineLogout} type="button">ログアウト</button>
+              </>
+            ) : (
+              <>
+                <span>オンライン管理画面</span>
+                <button onClick={() => {
+                  setOnlineAuthError("");
+                  setShowOnlineLogin(true);
+                }} type="button">管理者ログイン</button>
+              </>
+            )}
+          </div>
+        ) : null}
+
         <main>
           <section className={`view ${view === "staff" ? "active" : ""}`} id="staffView">
             <div className="panel tablet-panel">
@@ -624,6 +727,28 @@ export default function App() {
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowPasscodeDialog(false)} type="button">キャンセル</button>
               <button type="submit">{passcodeMode === "emergency" ? "許可してサインイン" : "開く"}</button>
+            </div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showOnlineLogin ? (
+        <Dialog onClose={() => setShowOnlineLogin(false)} title="オンライン管理者ログイン">
+          <form className="dialog-panel" onSubmit={handleOnlineLogin}>
+            <h2>オンライン管理者ログイン</h2>
+            <p className="note">Supabaseに登録した管理者アカウントでログインします。</p>
+            <label className="field">
+              <span>メールアドレス</span>
+              <input name="email" type="email" autoComplete="username" required />
+            </label>
+            <label className="field">
+              <span>パスワード</span>
+              <input name="password" type="password" autoComplete="current-password" required />
+            </label>
+            <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
+            <div className="dialog-actions">
+              <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">キャンセル</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "確認中..." : "ログイン"}</button>
             </div>
           </form>
         </Dialog>

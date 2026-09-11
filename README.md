@@ -44,6 +44,8 @@ npm run build
 
 To use this repository with a store GitHub account while keeping personal repositories on a personal account, see [the multiple-account setup guide](docs/github-multiple-accounts.md).
 
+For the Supabase online expansion specification and phased rollout plan, see [the online expansion specification](docs/online-expansion-spec.md).
+
 To test from Android on the same Wi-Fi:
 
 ```bash
