@@ -100,7 +100,7 @@ staff_id
 start_minute
 end_minute
 note
-status             draft | published | closed
+status             draft | published
 created_at
 updated_at
 ~~~
@@ -253,6 +253,7 @@ devices     管理者のみ
 - GitHub Actionsのテスト用Supabase Variables設定
 - `?mode=test`によるテスト用Supabase接続の切り替え
 - Supabase上のスタッフ一覧表示・追加・編集
+- 管理者専用テーブルによるスタッフコード表示・変更
 - Supabase上の週次シフト表示・追加・編集
 - Supabase上の勤務実績表示・追加・修正
 - 予定開始時刻を考慮した週次給与集計の表示
@@ -266,6 +267,7 @@ devices     管理者のみ
 - オンラインで追加したスタッフ・シフト・勤務実績はSupabaseに保存されますが、店舗タブレットのlocalStorageデータにはまだ反映されません。
 - Supabase Authの管理者ログインは実装済みですが、スタッフ向けログイン画面は未実装です。
 - テストモードは本番と同じPages URLのクエリで切り替えます。通常URLは本番DB、`?mode=test`はテストDBを使用し、Authセッションも分離します。
+- シフトの状態は下書きと公開の2種類に整理しました。締切状態は使用しません。
 
 #### 未着手
 
@@ -319,6 +321,18 @@ devices     管理者のみ
 
 ~~~text
 supabase/migrations/202609110003_payroll_period_unique.sql
+~~~
+
+既存プロジェクトで旧「締切」状態を使用していた場合は、次のSQLを一度実行して公開へ戻します。
+
+~~~text
+supabase/migrations/202609110004_remove_closed_shift_status.sql
+~~~
+
+スタッフコード表示を有効にするため、次のSQLを本番・テスト両方のDBで一度実行します。既存スタッフは、コード表示が「未設定」の場合にオンライン管理画面からコードを再設定します。
+
+~~~text
+supabase/migrations/202609110005_staff_codes.sql
 ~~~
 
 この段階では、店舗タブレットがまだlocalStorageを使っている場合、オンライン管理画面と店舗端末のデータが分離します。実運用で混在させず、開発用データまたは移行後のテスト環境で確認します。

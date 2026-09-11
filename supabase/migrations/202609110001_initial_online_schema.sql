@@ -1,7 +1,7 @@
 create extension if not exists pgcrypto;
 
 create type public.app_role as enum ('staff', 'manager', 'terminal');
-create type public.shift_status as enum ('draft', 'published', 'closed');
+create type public.shift_status as enum ('draft', 'published');
 create type public.shift_request_status as enum ('submitted', 'approved', 'rejected', 'withdrawn');
 create type public.swap_status as enum ('open', 'accepted', 'expired', 'cancelled');
 create type public.payroll_status as enum ('calculated', 'finalized', 'published');
@@ -12,6 +12,13 @@ create table public.staff (
   hourly_wage numeric(10, 2) not null check (hourly_wage >= 0),
   staff_code_hash text not null,
   active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table public.staff_codes (
+  staff_id uuid primary key references public.staff(id) on delete cascade,
+  code text not null unique check (code ~ '^[0-9]{5}$'),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -125,7 +132,7 @@ declare
   table_name text;
 begin
   foreach table_name in array array[
-    'staff', 'profiles', 'shifts', 'shift_requests', 'shift_swaps',
+    'staff', 'staff_codes', 'profiles', 'shifts', 'shift_requests', 'shift_swaps',
     'punches', 'payrolls', 'registered_devices'
   ] loop
     execute format(
@@ -161,6 +168,7 @@ as $$
 $$;
 
 alter table public.staff enable row level security;
+alter table public.staff_codes enable row level security;
 alter table public.profiles enable row level security;
 alter table public.shifts enable row level security;
 alter table public.shift_requests enable row level security;
@@ -173,6 +181,10 @@ create policy staff_read_self_or_manager on public.staff
   for select to authenticated
   using (public.is_manager() or id = public.current_staff_id());
 create policy staff_manager_write on public.staff
+  for all to authenticated
+  using (public.is_manager()) with check (public.is_manager());
+
+create policy staff_codes_manager_only on public.staff_codes
   for all to authenticated
   using (public.is_manager()) with check (public.is_manager());
 
@@ -271,7 +283,6 @@ begin
     select 1 from public.shifts other_shift
     where other_shift.staff_id = caller_staff_id
       and other_shift.work_date = target_shift.work_date
-      and other_shift.status <> 'closed'
       and other_shift.id <> target_shift.id
       and other_shift.end_minute > target_shift.start_minute
       and other_shift.start_minute < target_shift.end_minute

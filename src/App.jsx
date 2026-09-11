@@ -963,7 +963,7 @@ export default function App() {
             <label className="field"><span>開始</span><TimeSelect stepMinutes={15} value={onlineShiftForm.start} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, start: value }))} /></label>
             <label className="field"><span>終了</span><TimeSelect stepMinutes={15} value={onlineShiftForm.end} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, end: value }))} /></label>
             <label className="field"><span>備考</span><input value={onlineShiftForm.note} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, note: event.target.value }))} /></label>
-            <label className="field"><span>状態</span><select value={onlineShiftForm.status} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, status: event.target.value }))}><option value="draft">下書き</option><option value="published">公開</option><option value="closed">締切</option></select></label>
+            <label className="field"><span>状態</span><select value={onlineShiftForm.status} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, status: event.target.value }))}><option value="draft">下書き</option><option value="published">公開</option></select></label>
             <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineShiftDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
           </form>
         </Dialog>
@@ -1195,7 +1195,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                       <td>{weekDayLabel(date, "ja")}</td>
                       <td>{staffById.get(shift.staffId)?.name || "未登録"}</td>
                       <td>{displayShiftLabel(shift)}</td>
-                      <td>{shift.status === "published" ? "公開" : shift.status === "closed" ? "締切" : "下書き"}</td>
+                      <td>{shift.status === "draft" ? "下書き" : "公開"}</td>
                       <td>{shift.note || ""}</td>
                       <td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td>
                     </tr>
@@ -1211,6 +1211,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <span>{person.name}</span>
                 <span>{person.active ? "有効" : "停止中"}</span>
                 <span>{person.wage.toFixed(2)} / 時間</span>
+                <span>コード {person.code || "未設定"}</span>
                 <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}

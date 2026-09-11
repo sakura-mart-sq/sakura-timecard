@@ -12,12 +12,13 @@ function toShift(row) {
   };
 }
 
-function toStaff(row) {
+function toStaff(row, code = "") {
   return {
     id: row.id,
     name: row.name,
     wage: Number(row.hourly_wage),
     active: row.active,
+    code,
   };
 }
 
@@ -37,8 +38,9 @@ export async function fetchManagerSnapshot(client, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
-  const [staffResult, shiftResult, punchResult, payrollResult] = await Promise.all([
+  const [staffResult, codeResult, shiftResult, punchResult, payrollResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active").order("name"),
+    client.from("staff_codes").select("staff_id, code"),
     client
       .from("shifts")
       .select("id, work_date, staff_id, start_minute, end_minute, note, status")
@@ -60,12 +62,13 @@ export async function fetchManagerSnapshot(client, weekStart) {
   ]);
 
   if (staffResult.error) throw staffResult.error;
+  if (codeResult.error) throw codeResult.error;
   if (shiftResult.error) throw shiftResult.error;
   if (punchResult.error) throw punchResult.error;
   if (payrollResult.error) throw payrollResult.error;
 
   return {
-    staff: (staffResult.data || []).map(toStaff),
+    staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
     shifts: (shiftResult.data || []).map(toShift),
     punches: (punchResult.data || []).map(toPunch),
     payrolls: payrollResult.data || [],
@@ -118,11 +121,19 @@ export async function saveOnlineStaff(client, form) {
     active: form.active !== false,
   };
   if (form.code) payload.staff_code_hash = await hashStaffCode(form.code.trim());
-  const query = form.id
-    ? client.from("staff").update(payload).eq("id", form.id)
-    : client.from("staff").insert(payload);
-  const { error } = await query;
-  if (error) throw error;
+  let staffId = form.id;
+  if (form.id) {
+    const { error } = await client.from("staff").update(payload).eq("id", form.id);
+    if (error) throw error;
+  } else {
+    const { data, error } = await client.from("staff").insert(payload).select("id").single();
+    if (error) throw error;
+    staffId = data.id;
+  }
+  if (form.code) {
+    const { error } = await client.from("staff_codes").upsert({ staff_id: staffId, code: form.code.trim() }, { onConflict: "staff_id" });
+    if (error) throw error;
+  }
 }
 
 export async function saveOnlineShift(client, form) {
@@ -132,7 +143,7 @@ export async function saveOnlineShift(client, form) {
     start_minute: Number(form.start),
     end_minute: Number(form.end),
     note: form.note?.trim() || "",
-    status: form.status || "published",
+    status: form.status === "draft" ? "draft" : "published",
   };
   const query = form.id
     ? client.from("shifts").update(payload).eq("id", form.id)
