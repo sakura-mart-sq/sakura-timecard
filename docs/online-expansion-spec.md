@@ -231,28 +231,95 @@ devices     管理者のみ
 
 ## 6. 開発フェーズとブランチ
 
+### 現在の進捗（2026-09-11）
+
+現在の作業ブランチは `feature/supabase-manager-portal` です。以下のコミットをGitHubの店舗リポジトリへプッシュ済みで、Pull Requestを作成しています。
+
+- `d9c0fbd` Supabase Authの管理者ログイン基盤
+- `25ba2a0` オンライン管理画面の週次シフト表示
+- `9202852` Data API用のauthenticated権限
+- `b27525b` オンラインスタッフ・シフト管理
+- `08253d7` GitHub PagesのActionsデプロイとSupabase環境変数
+- `a0d2bd6` オンライン勤務実績の修正と週次給与計算
+
+#### 完了
+
+- Supabase Freeプロジェクト作成
+- 初期テーブル、RLS、交代受付RPCの作成
+- `profiles`へ管理者アカウントを登録
+- Supabase Authによる管理者ログイン
+- GitHub PagesのActionsビルド・デプロイ
+- GitHub Actionsの `VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY` 設定
+- GitHub Actionsのテスト用Supabase Variables設定
+- `?mode=test`によるテスト用Supabase接続の切り替え
+- Supabase上のスタッフ一覧表示・追加・編集
+- Supabase上の週次シフト表示・追加・編集
+- Supabase上の勤務実績表示・追加・修正
+- 予定開始時刻を考慮した週次給与集計の表示
+- `payrolls`テーブルへの給与保存・確定・公開状態の更新
+- スタッフ・期間ごとの給与重複保存を防ぐ一意制約
+- 既存の店舗端末用localStorage管理画面の維持
+
+#### 一部実装
+
+- 管理者オンライン画面は現在、スタッフ、シフト、勤務実績、給与集計をSupabaseから扱えます。給与は週単位で `calculated`、`finalized`、`published` の順に保存できます。
+- オンラインで追加したスタッフ・シフト・勤務実績はSupabaseに保存されますが、店舗タブレットのlocalStorageデータにはまだ反映されません。
+- Supabase Authの管理者ログインは実装済みですが、スタッフ向けログイン画面は未実装です。
+- テストモードは本番と同じPages URLのクエリで切り替えます。通常URLは本番DB、`?mode=test`はテストDBを使用し、Authセッションも分離します。
+
+#### 未着手
+
+- 店舗タブレットのSupabase接続と共有打刻
+- 登録済み端末の初期登録、端末トークン検証、通信エラー時の再送
+- スタッフ向けポータル
+- シフト希望の提出・確認
+- メールによる交代募集と先着1名の自動確定
+- 給与の確定・公開とスタッフによる給与確認
+- localStorageからSupabaseへの本番データ移行
+
+現時点では、オンライン管理画面と店舗タブレットを同時に本番運用しません。データソースがSupabaseとlocalStorageに分かれるため、店舗打刻のSupabase連携が完了してから本番切り替えを行います。
+
+### テストモードの利用
+
+本番PagesのURLに `?mode=test` を付けると、テスト用Supabaseへ接続します。
+
+~~~text
+本番: https://sakura-mart-sq.github.io/sakura-timecard/
+テスト: https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
+~~~
+
+テストモードはURLを知っている人なら開けるため、URL自体を認証手段にはしません。テスト用プロジェクトには本番データを入れず、テスト用Authユーザーだけを登録します。
+
 ### Phase 0: 基盤準備
 
 ブランチ例：feature/supabase-foundation
 
-- Supabaseプロジェクト作成
-- DBテーブルとマイグレーション作成
-- Auth設定
-- RLSポリシー作成
-- 開発用・本番用環境変数の分離
-- 現行localStorageバックアップの移行設計
+- [x] Supabaseプロジェクト作成
+- [x] DBテーブルとマイグレーション作成
+- [x] Auth設定
+- [x] RLSポリシー作成
+- [x] 開発用・本番用環境変数の分離
+- [x] Data API権限の明示設定
+- [x] 現行localStorageバックアップの移行設計
 
 ### Phase 1: マネージャー向けオンラインポータル
 
 現在の作業ブランチ：feature/supabase-manager-portal
 
-- 管理者ログイン
-- スタッフ管理
-- シフト希望の確認
-- シフト作成・編集
-- 打刻調整
-- 給与計算・確定
-- 確定済み給与の公開
+- [x] 管理者ログイン
+- [x] スタッフ管理（追加・編集）
+- [ ] シフト希望の確認
+- [x] シフト作成・編集
+- [x] 勤務実績の確認・追加・修正
+- [x] 週次給与計算の表示
+- [x] `payrolls`テーブルへの給与確定・保存
+- [x] 確定済み給与の公開
+
+給与保存機能を使用する前に、Supabase SQL Editorで次の追加マイグレーションを一度実行します。
+
+~~~text
+supabase/migrations/202609110003_payroll_period_unique.sql
+~~~
 
 この段階では、店舗タブレットがまだlocalStorageを使っている場合、オンライン管理画面と店舗端末のデータが分離します。実運用で混在させず、開発用データまたは移行後のテスト環境で確認します。
 
