@@ -14,16 +14,16 @@
   <body>
     <div id="root"></div>
     <script type="module">
-      const isGitHubPages = window.location.hostname === "naoyuk.github.io";
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
       const script = document.createElement("script");
       script.type = "module";
-      script.src = isGitHubPages ? "/sakura-timecard/assets/app.js" : "/src/main.jsx";
+      script.src = isLocal ? "/src/main.jsx" : "./assets/app.js";
       document.body.appendChild(script);
 
-      if (isGitHubPages) {
+      if (!isLocal) {
         const stylesheet = document.createElement("link");
         stylesheet.rel = "stylesheet";
-        stylesheet.href = "/sakura-timecard/assets/app.css";
+        stylesheet.href = "./assets/app.css";
         document.head.appendChild(stylesheet);
       }
     </script>
