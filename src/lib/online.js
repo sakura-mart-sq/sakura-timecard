@@ -132,7 +132,7 @@ export async function saveOnlineShift(client, form) {
     start_minute: Number(form.start),
     end_minute: Number(form.end),
     note: form.note?.trim() || "",
-    status: form.status || "published",
+    status: form.status === "draft" ? "draft" : "published",
   };
   const query = form.id
     ? client.from("shifts").update(payload).eq("id", form.id)

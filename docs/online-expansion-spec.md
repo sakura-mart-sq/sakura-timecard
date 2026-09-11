@@ -100,7 +100,7 @@ staff_id
 start_minute
 end_minute
 note
-status             draft | published | closed
+status             draft | published
 created_at
 updated_at
 ~~~
@@ -266,6 +266,7 @@ devices     管理者のみ
 - オンラインで追加したスタッフ・シフト・勤務実績はSupabaseに保存されますが、店舗タブレットのlocalStorageデータにはまだ反映されません。
 - Supabase Authの管理者ログインは実装済みですが、スタッフ向けログイン画面は未実装です。
 - テストモードは本番と同じPages URLのクエリで切り替えます。通常URLは本番DB、`?mode=test`はテストDBを使用し、Authセッションも分離します。
+- シフトの状態は下書きと公開の2種類に整理しました。締切状態は使用しません。
 
 #### 未着手
 
@@ -319,6 +320,12 @@ devices     管理者のみ
 
 ~~~text
 supabase/migrations/202609110003_payroll_period_unique.sql
+~~~
+
+既存プロジェクトで旧「締切」状態を使用していた場合は、次のSQLを一度実行して公開へ戻します。
+
+~~~text
+supabase/migrations/202609110004_remove_closed_shift_status.sql
 ~~~
 
 この段階では、店舗タブレットがまだlocalStorageを使っている場合、オンライン管理画面と店舗端末のデータが分離します。実運用で混在させず、開発用データまたは移行後のテスト環境で確認します。

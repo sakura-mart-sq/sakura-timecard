@@ -1,7 +1,7 @@
 create extension if not exists pgcrypto;
 
 create type public.app_role as enum ('staff', 'manager', 'terminal');
-create type public.shift_status as enum ('draft', 'published', 'closed');
+create type public.shift_status as enum ('draft', 'published');
 create type public.shift_request_status as enum ('submitted', 'approved', 'rejected', 'withdrawn');
 create type public.swap_status as enum ('open', 'accepted', 'expired', 'cancelled');
 create type public.payroll_status as enum ('calculated', 'finalized', 'published');
@@ -271,7 +271,6 @@ begin
     select 1 from public.shifts other_shift
     where other_shift.staff_id = caller_staff_id
       and other_shift.work_date = target_shift.work_date
-      and other_shift.status <> 'closed'
       and other_shift.id <> target_shift.id
       and other_shift.end_minute > target_shift.start_minute
       and other_shift.start_minute < target_shift.end_minute
