@@ -616,6 +616,7 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
+  const staffVisible = view === "staff" && !(onlineSession && onlineRole === "manager");
 
   return (
     <>
@@ -669,7 +670,7 @@ export default function App() {
         ) : null}
 
         <main>
-          <section className={`view ${view === "staff" ? "active" : ""}`} id="staffView">
+          <section className={`view ${staffVisible ? "active" : ""}`} id="staffView">
             <div className="panel tablet-panel">
               <div className="panel-heading">
                 <h2>Sign In</h2>
