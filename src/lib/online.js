@@ -78,6 +78,36 @@ export async function fetchManagerSnapshot(client, weekStart) {
   };
 }
 
+export async function fetchStaffSnapshot(client, staffId, weekStart) {
+  const weekEnd = addDays(weekStart, 6);
+  const [shiftResult, payrollResult] = await Promise.all([
+    client
+      .from("shifts")
+      .select("id, work_date, staff_id, start_minute, end_minute, note, status")
+      .eq("staff_id", staffId)
+      .eq("status", "published")
+      .gte("work_date", weekStart)
+      .lte("work_date", weekEnd)
+      .order("work_date")
+      .order("start_minute"),
+    client
+      .from("payrolls")
+      .select("id, period_start, period_end, total_minutes, total_pay, status")
+      .eq("staff_id", staffId)
+      .eq("status", "published")
+      .order("period_start", { ascending: false }),
+  ]);
+  if (shiftResult.error) throw shiftResult.error;
+  if (payrollResult.error) throw payrollResult.error;
+  return {
+    shifts: (shiftResult.data || []).map(toShift),
+    payrolls: payrollResult.data || [],
+    weekStart,
+    weekEnd,
+    loadedAt: new Date(),
+  };
+}
+
 export function onlinePayrollRows(snapshot) {
   return (snapshot?.staff || []).map((person) => {
     const minutes = (snapshot.punches || []).reduce((total, punch) => {
