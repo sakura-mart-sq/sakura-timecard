@@ -36,6 +36,7 @@ import {
 import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
+  fetchStaffSnapshot,
   onlinePayrollRows,
   onlinePunchRows,
   saveOnlinePunch,
@@ -128,6 +129,7 @@ export default function App() {
   const [punchForm, setPunchForm] = useState(emptyPunchForm);
   const [onlineSession, setOnlineSession] = useState(null);
   const [onlineRole, setOnlineRole] = useState("");
+  const [onlineStaffId, setOnlineStaffId] = useState("");
   const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
   const [onlineAuthError, setOnlineAuthError] = useState("");
   const [showOnlineLogin, setShowOnlineLogin] = useState(false);
@@ -191,7 +193,7 @@ export default function App() {
     if (!supabase || !userId) return "";
     const { data, error } = await supabase
       .from("profiles")
-      .select("role, active")
+      .select("role, active, staff_id")
       .eq("id", userId)
       .maybeSingle();
     if (error) {
@@ -201,8 +203,9 @@ export default function App() {
     }
     const role = data?.active ? data.role : "";
     setOnlineRole(role);
-    if (role !== "manager") {
-      setOnlineAuthError("このアカウントには管理者権限がありません。");
+    setOnlineStaffId(data?.active ? data.staff_id || "" : "");
+    if (role !== "manager" && role !== "staff") {
+      setOnlineAuthError("このアカウントには利用権限がありません。");
       await supabase.auth.signOut();
     }
     return role;
@@ -224,7 +227,7 @@ export default function App() {
     }
     const role = await loadOnlineRole(data.user?.id);
     setOnlineAuthLoading(false);
-    if (role !== "manager") return;
+    if (role !== "manager" && role !== "staff") return;
     event.currentTarget.reset();
   }
 
@@ -233,6 +236,7 @@ export default function App() {
     await supabase.auth.signOut();
     setOnlineSession(null);
     setOnlineRole("");
+    setOnlineStaffId("");
     setOnlineSnapshot(null);
   }
 
@@ -357,11 +361,13 @@ export default function App() {
   }
 
   async function refreshOnlineData() {
-    if (!supabase || onlineRole !== "manager") return;
+    if (!supabase || !onlineRole) return;
     setOnlineDataLoading(true);
     setOnlineDataError("");
     try {
-      setOnlineSnapshot(await fetchManagerSnapshot(supabase, onlineWeekStart));
+      setOnlineSnapshot(onlineRole === "manager"
+        ? await fetchManagerSnapshot(supabase, onlineWeekStart)
+        : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart));
     } catch (error) {
       setOnlineDataError(error?.message || "オンラインデータを読み込めませんでした。");
     } finally {
@@ -370,8 +376,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (onlineRole === "manager") refreshOnlineData();
-  }, [onlineRole, onlineWeekStart]);
+    if (onlineRole === "manager" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
+  }, [onlineRole, onlineStaffId, onlineWeekStart]);
 
   const today = dateKey(now);
   const weeklyDates = useMemo(() => weekDates(shiftWeekStart), [shiftWeekStart]);
@@ -616,7 +622,8 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
-  const staffVisible = view === "staff" && !(onlineSession && onlineRole === "manager");
+  const onlinePortalActive = onlineSession && (onlineRole === "manager" || onlineRole === "staff");
+  const staffVisible = view === "staff" && !onlinePortalActive;
 
   return (
     <>
@@ -634,9 +641,9 @@ export default function App() {
 
         {supabaseConfigured ? (
           <div className="online-bar" role="status">
-            {onlineSession && onlineRole === "manager" ? (
+            {onlinePortalActive ? (
               <>
-                <span>{supabaseMode === "test" ? "TEST / " : ""}Online manager: {onlineSession.user.email}</span>
+                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "manager" ? "Online manager" : "Online staff"}: {onlineSession.user.email}</span>
                 <button className="ghost" onClick={handleOnlineLogout} type="button">ログアウト</button>
               </>
             ) : (
@@ -645,7 +652,7 @@ export default function App() {
                 <button onClick={() => {
                   setOnlineAuthError("");
                   setShowOnlineLogin(true);
-                }} type="button">管理者ログイン</button>
+                }} type="button">オンラインログイン</button>
               </>
             )}
           </div>
@@ -665,6 +672,17 @@ export default function App() {
             onAddPunch={() => openOnlinePunchDialog()}
             onEditPunch={openOnlinePunchDialog}
             onSavePayroll={handleSaveOnlinePayroll}
+            onRefresh={refreshOnlineData}
+          />
+        ) : null}
+
+        {onlineSession && onlineRole === "staff" ? (
+          <OnlineStaffPanel
+            data={onlineSnapshot}
+            error={onlineDataError}
+            loading={onlineDataLoading}
+            onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
+            onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
             onRefresh={refreshOnlineData}
           />
         ) : null}
@@ -921,10 +939,10 @@ export default function App() {
       ) : null}
 
       {showOnlineLogin ? (
-        <Dialog onClose={() => setShowOnlineLogin(false)} title="オンライン管理者ログイン">
+        <Dialog onClose={() => setShowOnlineLogin(false)} title="オンラインログイン">
           <form className="dialog-panel" onSubmit={handleOnlineLogin}>
-            <h2>オンライン管理者ログイン</h2>
-            <p className="note">Supabaseに登録した管理者アカウントでログインします。</p>
+            <h2>オンラインログイン</h2>
+            <p className="note">Supabaseに登録したアカウントでログインします。</p>
             <label className="field">
               <span>メールアドレス</span>
               <input name="email" type="email" autoComplete="username" required />
@@ -1144,6 +1162,55 @@ export default function App() {
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh }) {
+  const dates = data ? weekDates(data.weekStart) : [];
+  return (
+    <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
+      <div className="online-manager-heading">
+        <div>
+          <p className="eyebrow">SUPABASE ONLINE</p>
+          <h2 id="onlineStaffHeading">My Shifts</h2>
+        </div>
+        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">{loading ? "Loading..." : "Refresh"}</button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {!data && loading ? <p className="empty">Loading your shifts.</p> : null}
+      {data ? (
+        <>
+          <div className="online-week-controls">
+            <button aria-label="Previous week" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+            <strong>{weekDayLabel(data.weekStart, "en")} - {weekDayLabel(data.weekEnd, "en")}</strong>
+            <button aria-label="Next week" className="ghost" onClick={onNextWeek} type="button">›</button>
+          </div>
+          <div className="online-table-wrap">
+            <table className="online-table">
+              <thead><tr><th>Date</th><th>Shift</th><th>Note</th></tr></thead>
+              <tbody>
+                {dates.map((date) => {
+                  const shifts = data.shifts.filter((shift) => shift.date === date);
+                  return shifts.length ? shifts.map((shift) => (
+                    <tr key={shift.id}><td>{weekDayLabel(date, "en")}</td><td>{displayShiftLabel(shift)}</td><td>{shift.note || ""}</td></tr>
+                  )) : <tr key={date}><td>{weekDayLabel(date, "en")}</td><td colSpan="2" className="muted-cell">No shift</td></tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="online-staff-list">
+            <h3>Published Payroll</h3>
+            {data.payrolls.length ? data.payrolls.map((payroll) => (
+              <div className="online-staff-row" key={payroll.id}>
+                <span>{payroll.period_start} - {payroll.period_end}</span>
+                <span>{(payroll.total_minutes / 60).toFixed(2)} hours</span>
+                <strong>{Number(payroll.total_pay).toFixed(2)}</strong>
+              </div>
+            )) : <p className="empty">No published payroll.</p>}
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }
 
