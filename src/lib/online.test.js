@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchManagerSnapshot } from "./online.js";
+import { fetchManagerSnapshot, inviteOnlineStaff, saveOnlineStaff } from "./online.js";
 
 function queryResult(data, error = null) {
   const query = {
@@ -15,6 +15,55 @@ function queryResult(data, error = null) {
 }
 
 describe("online manager data", () => {
+  it("invokes the server-side staff invitation function", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      data: { ok: true, invited: true, staffId: "staff-a" },
+      error: null,
+    });
+
+    const result = await inviteOnlineStaff({ functions: { invoke } }, {
+      staffId: "staff-a",
+      email: "  staff@example.com ",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("invite-staff", {
+      body: { staffId: "staff-a", email: "staff@example.com" },
+    });
+    expect(result).toMatchObject({ ok: true, invited: true });
+  });
+
+  it("surfaces invitation function errors", async () => {
+    await expect(inviteOnlineStaff({
+      functions: { invoke: vi.fn().mockResolvedValue({ data: null, error: new Error("network") }) },
+    }, { staffId: "staff-a", email: "staff@example.com" })).rejects.toThrow("network");
+  });
+
+  it("removes a newly inserted staff when its code cannot be saved", async () => {
+    const deleteQuery = { eq: vi.fn(() => Promise.resolve({ error: null })) };
+    const insertedQuery = {
+      select: vi.fn(() => insertedQuery),
+      single: vi.fn().mockResolvedValue({ data: { id: "staff-new" }, error: null }),
+    };
+    const codeQuery = {
+      upsert: vi.fn().mockResolvedValue({ error: { code: "23505" } }),
+    };
+    const client = {
+      from: vi.fn((table) => table === "staff" ? {
+        insert: vi.fn(() => insertedQuery),
+        delete: vi.fn(() => deleteQuery),
+      } : codeQuery),
+    };
+
+    await expect(saveOnlineStaff(client, {
+      name: "新規スタッフ",
+      wage: "18.00",
+      code: "12345",
+      active: true,
+    })).rejects.toMatchObject({ code: "23505" });
+    expect(client.from).toHaveBeenCalledWith("staff");
+    expect(deleteQuery.eq).toHaveBeenCalledWith("id", "staff-new");
+  });
+
   it("loads and maps staff and one week's shifts", async () => {
     const client = {
       from: vi.fn((table) => table === "staff"
