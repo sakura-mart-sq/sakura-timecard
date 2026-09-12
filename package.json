@@ -1,6 +1,6 @@
 {
   "name": "sakura-timecard",
-  "version": "1.2.10",
+  "version": "1.2.11",
   "description": "Sakura Mart timecard PWA rebuilt with React and Vitest",
   "type": "module",
   "engines": {

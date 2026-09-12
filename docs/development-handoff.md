@@ -9,13 +9,13 @@
 現在のブランチ:
 
 ```text
-feature/supabase-manager-portal
+feature/shift-request-portal
 ```
 
 最新コミット:
 
 ```text
-Auth招待機能を実装（Supabase Functionデプロイ待ち）
+シフト希望機能を実装（テストDB確認待ち）
 ```
 
 このブランチは店舗GitHubリポジトリへプッシュ済みです。作業再開時は、GitHub上の既存Pull Requestが最新コミットを含んでいるか確認してください。
@@ -50,6 +50,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 - 管理者プロフィールによる権限確認
 - Supabase上のスタッフ追加・編集
 - 管理画面からのスタッフAuth招待・自動紐付け（Edge Function実装済み）
+- スタッフのシフト希望提出・取り下げ、管理者の承認・却下
 - 5桁スタッフコードの管理者向け表示・変更
 - 週次シフトの表示、追加、編集
 - 下書き・公開ステータス
@@ -74,32 +75,18 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 
 優先順位順です。
 
-1. 管理画面からスタッフAuthユーザーを招待・自動紐付け
-2. スタッフのシフト希望提出・取り下げ
-3. シフト交代申請、メール通知、先着1名の自動確定
-4. 店舗タブレットのSupabase接続
-5. 登録端末の検証、オフライン・通信エラー対応
-6. localStorageからSupabaseへの本番データ移行
+1. シフト交代申請、メール通知、先着1名の自動確定
+2. 店舗タブレットのSupabase接続
+3. 登録端末の検証、オフライン・通信エラー対応
+4. localStorageからSupabaseへの本番データ移行
 
 ## 次に実装する機能
 
-### 管理画面からのスタッフ招待
+### シフト交代申請
 
-現在、新しいスタッフを追加するには次の作業が必要です。
+次は、スタッフが公開済みシフトの交代を申請し、他スタッフが受諾できる機能を実装します。先着1名の確定処理は既存の`accept_shift_swap` RPCを利用し、メール通知はEdge Functionで追加します。
 
-1. オンライン管理画面でスタッフ情報を登録
-2. Supabase DashboardのAuthenticationでAuthユーザーを作成
-3. SQLで`profiles`に`role = 'staff'`と`staff_id`を登録
-
-これを自動化するため、Supabase Edge Functionを追加します。
-
-- 管理画面にメールアドレス入力欄を追加
-- Edge Function内でAuthユーザーを作成または招待
-- `profiles`を自動作成
-- `service_role`キーはEdge Functionのサーバー側だけに置く
-- ブラウザ、GitHub Pages、`.env.local`には`service_role`キーを絶対に置かない
-
-実装ファイルは`supabase/functions/invite-staff/index.ts`です。Supabase本番・テスト両方のFunctionへデプロイし、各プロジェクトのFunction Secretに`SUPABASE_SERVICE_ROLE_KEY`と必要に応じて`INVITE_REDIRECT_URL`を設定します。
+スタッフAuth招待の実装ファイルは`supabase/functions/invite-staff/index.ts`です。テスト用Functionはデプロイ済みで、本番用Functionのデプロイと招待メール確認が残っています。
 
 ## Supabaseマイグレーション
 

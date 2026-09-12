@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchManagerSnapshot, inviteOnlineStaff, saveOnlineStaff } from "./online.js";
+import {
+  fetchManagerSnapshot,
+  inviteOnlineStaff,
+  saveOnlineShiftRequest,
+  saveOnlineStaff,
+  updateOnlineShiftRequest,
+  withdrawOnlineShiftRequest,
+} from "./online.js";
 
 function queryResult(data, error = null) {
   const query = {
@@ -62,6 +69,45 @@ describe("online manager data", () => {
     })).rejects.toMatchObject({ code: "23505" });
     expect(client.from).toHaveBeenCalledWith("staff");
     expect(deleteQuery.eq).toHaveBeenCalledWith("id", "staff-new");
+  });
+
+  it("creates, withdraws, and updates a shift request", async () => {
+    const calls = [];
+    const client = {
+      from: vi.fn(() => ({
+        insert: vi.fn((payload) => {
+          calls.push({ type: "insert", payload });
+          return Promise.resolve({ error: null });
+        }),
+        update: vi.fn((payload) => {
+          calls.push({ type: "update", payload });
+          return { eq: vi.fn((field, value) => {
+            calls.push({ type: "eq", field, value });
+            return Promise.resolve({ error: null });
+          }) };
+        }),
+      })),
+    };
+
+    await saveOnlineShiftRequest(client, { date: "2026-09-18", start: "600", end: "960", note: "イベント" }, "staff-a");
+    await withdrawOnlineShiftRequest(client, "request-a");
+    await updateOnlineShiftRequest(client, "request-a", "approved");
+
+    expect(calls).toEqual([
+      { type: "insert", payload: {
+        staff_id: "staff-a",
+        work_date: "2026-09-18",
+        requested_start: 600,
+        requested_end: 960,
+        note: "イベント",
+        status: "submitted",
+        manager_note: "",
+      } },
+      { type: "update", payload: { status: "withdrawn" } },
+      { type: "eq", field: "id", value: "request-a" },
+      { type: "update", payload: { status: "approved", manager_note: "" } },
+      { type: "eq", field: "id", value: "request-a" },
+    ]);
   });
 
   it("loads and maps staff and one week's shifts", async () => {

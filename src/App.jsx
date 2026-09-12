@@ -40,10 +40,13 @@ import {
   inviteOnlineStaff,
   onlinePayrollRows,
   onlinePunchRows,
+  saveOnlineShiftRequest,
   saveOnlinePunch,
   saveOnlinePayroll,
   saveOnlineShift,
   saveOnlineStaff,
+  updateOnlineShiftRequest,
+  withdrawOnlineShiftRequest,
 } from "./lib/online.js";
 import { supabase, supabaseConfigured, supabaseMode } from "./lib/supabase.js";
 import {
@@ -98,6 +101,7 @@ const emptyOnlineShiftForm = (date, staffId = "") => ({
   note: "",
   status: "published",
 });
+const emptyOnlineRequestForm = (date) => ({ date, start: "09:00", end: "17:00", note: "" });
 
 export default function App() {
   const [state, setState] = useState(() => loadState());
@@ -142,6 +146,8 @@ export default function App() {
   const [onlineShiftForm, setOnlineShiftForm] = useState(() => emptyOnlineShiftForm(dateKey(new Date())));
   const [showOnlineStaffDialog, setShowOnlineStaffDialog] = useState(false);
   const [showOnlineShiftDialog, setShowOnlineShiftDialog] = useState(false);
+  const [onlineRequestForm, setOnlineRequestForm] = useState(() => emptyOnlineRequestForm(dateKey(new Date())));
+  const [showOnlineRequestDialog, setShowOnlineRequestDialog] = useState(false);
   const [onlinePunchForm, setOnlinePunchForm] = useState(null);
   const [showOnlinePunchDialog, setShowOnlinePunchDialog] = useState(false);
 
@@ -323,6 +329,54 @@ export default function App() {
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "シフトを保存できませんでした。");
+    }
+  }
+
+  function openOnlineRequestDialog() {
+    setOnlineRequestForm(emptyOnlineRequestForm(dateKey(new Date())));
+    setShowOnlineRequestDialog(true);
+  }
+
+  async function handleSaveOnlineRequest(event) {
+    event.preventDefault();
+    if (!supabase || !onlineStaffId) return;
+    const form = new FormData(event.currentTarget);
+    const values = {
+      date: String(form.get("date") || ""),
+      start: String(form.get("start") || ""),
+      end: String(form.get("end") || ""),
+      note: String(form.get("note") || ""),
+    };
+    if (!values.date || timeToMinutes(values.end) <= timeToMinutes(values.start)) {
+      setOnlineDataError("希望日と正しい勤務時間を指定してください。");
+      return;
+    }
+    try {
+      await saveOnlineShiftRequest(supabase, values, onlineStaffId);
+      setShowOnlineRequestDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト希望を提出できませんでした。");
+    }
+  }
+
+  async function handleWithdrawOnlineRequest(requestId) {
+    if (!supabase) return;
+    try {
+      await withdrawOnlineShiftRequest(supabase, requestId);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト希望を取り下げできませんでした。");
+    }
+  }
+
+  async function handleUpdateOnlineRequest(requestId, status) {
+    if (!supabase) return;
+    try {
+      await updateOnlineShiftRequest(supabase, requestId, status);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト希望を更新できませんでした。");
     }
   }
 
@@ -684,6 +738,8 @@ export default function App() {
             onEditPunch={openOnlinePunchDialog}
             onSavePayroll={handleSaveOnlinePayroll}
             onRefresh={refreshOnlineData}
+            onRequest={openOnlineRequestDialog}
+            onWithdrawRequest={handleWithdrawOnlineRequest}
           />
         ) : null}
 
@@ -695,6 +751,7 @@ export default function App() {
             onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
             onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
             onRefresh={refreshOnlineData}
+            onUpdateRequest={handleUpdateOnlineRequest}
           />
         ) : null}
 
@@ -1000,6 +1057,20 @@ export default function App() {
         </Dialog>
       ) : null}
 
+      {showOnlineRequestDialog ? (
+        <Dialog onClose={() => setShowOnlineRequestDialog(false)} title="シフト希望">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineRequest}>
+            <h2>シフト希望を提出</h2>
+            <p className="note">提出した希望は管理者が確認します。</p>
+            <label className="field"><span>希望日</span><input name="date" required type="date" value={onlineRequestForm.date} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, date: event.target.value }))} /></label>
+            <label className="field"><span>開始</span><TimeSelect name="start" stepMinutes={15} value={onlineRequestForm.start} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, start: value }))} /></label>
+            <label className="field"><span>終了</span><TimeSelect name="end" stepMinutes={15} value={onlineRequestForm.end} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, end: value }))} /></label>
+            <label className="field"><span>備考</span><input name="note" value={onlineRequestForm.note} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineRequestDialog(false)} type="button">キャンセル</button><button type="submit">提出</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
       {showOnlinePunchDialog && onlinePunchForm ? (
         <Dialog onClose={() => setShowOnlinePunchDialog(false)} title="オンライン勤務記録">
           <form className="dialog-panel" onSubmit={handleSaveOnlinePunch}>
@@ -1177,7 +1248,7 @@ export default function App() {
   );
 }
 
-function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh }) {
+function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest }) {
   const dates = data ? weekDates(data.weekStart) : [];
   return (
     <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
@@ -1187,6 +1258,7 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
           <h2 id="onlineStaffHeading">My Shifts</h2>
         </div>
         <button className="ghost" disabled={loading} onClick={onRefresh} type="button">{loading ? "Loading..." : "Refresh"}</button>
+        <button onClick={onRequest} type="button">Request shift</button>
       </div>
       {error ? <p className="error">{error}</p> : null}
       {!data && loading ? <p className="empty">Loading your shifts.</p> : null}
@@ -1211,6 +1283,17 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
             </table>
           </div>
           <div className="online-staff-list">
+            <h3>My Shift Requests</h3>
+            {data.shiftRequests.length ? data.shiftRequests.map((request) => (
+              <div className="online-staff-row" key={request.id}>
+                <span>{request.date}</span>
+                <span>{minutesToTime(request.start)} - {minutesToTime(request.end)}</span>
+                <span>{request.status}</span>
+                {request.status === "submitted" ? <button className="compact-edit ghost" onClick={() => onWithdrawRequest(request.id)} type="button">Withdraw</button> : null}
+              </div>
+            )) : <p className="empty">No shift requests.</p>}
+          </div>
+          <div className="online-staff-list">
             <h3>Published Payroll</h3>
             {data.payrolls.length ? data.payrolls.map((payroll) => (
               <div className="online-staff-row" key={payroll.id}>
@@ -1226,7 +1309,7 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll, onUpdateRequest }) {
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   return (
@@ -1295,6 +1378,26 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
+          </div>
+          <div className="online-staff-list">
+            <div className="online-manager-heading"><h3>シフト希望</h3></div>
+            <div className="online-table-wrap">
+              <table className="online-table">
+                <thead><tr><th>希望日</th><th>スタッフ</th><th>希望時間</th><th>状態</th><th>備考</th><th>操作</th></tr></thead>
+                <tbody>
+                  {data.shiftRequests.length ? data.shiftRequests.map((request) => (
+                    <tr key={request.id}>
+                      <td>{request.date}</td>
+                      <td>{staffById.get(request.staffId)?.name || "未登録"}</td>
+                      <td>{minutesToTime(request.start)} - {minutesToTime(request.end)}</td>
+                      <td>{request.status}</td>
+                      <td>{request.note}</td>
+                      <td>{request.status === "submitted" ? <><button className="compact-edit ghost" onClick={() => onUpdateRequest(request.id, "approved")} type="button">承認</button> <button className="compact-edit ghost" onClick={() => onUpdateRequest(request.id, "rejected")} type="button">却下</button></> : "-"}</td>
+                    </tr>
+                  )) : <tr><td colSpan="6" className="muted-cell">シフト希望はありません。</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
           <div className="online-staff-list">
             <h3>給与計算（表示中の週）</h3>

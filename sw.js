@@ -1,4 +1,4 @@
-const CACHE_NAME = "sakura-mart-timecard-v1210";
+const CACHE_NAME = "sakura-mart-timecard-v1211";
 const APP_BASE = self.location.pathname.replace(/sw\.js$/, "");
 const APP_SHELL = [
   APP_BASE,
