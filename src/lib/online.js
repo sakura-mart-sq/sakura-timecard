@@ -48,11 +48,27 @@ function toShiftRequest(row) {
   };
 }
 
+function toShiftSwap(row) {
+  const shift = row.shifts || {};
+  return {
+    id: row.id,
+    shiftId: row.shift_id,
+    fromStaffId: row.from_staff_id,
+    acceptedBy: row.accepted_by,
+    status: row.status,
+    note: row.note || "",
+    date: shift.work_date,
+    start: shift.start_minute,
+    end: shift.end_minute,
+    createdAt: row.created_at,
+  };
+}
+
 export async function fetchManagerSnapshot(client, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
-  const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult] = await Promise.all([
+  const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult, swapResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active").order("name"),
     client.from("staff_codes").select("staff_id, code"),
     client
@@ -80,6 +96,10 @@ export async function fetchManagerSnapshot(client, weekStart) {
       .lte("work_date", weekEnd)
       .order("work_date")
       .order("created_at", { ascending: false }),
+    client
+      .from("shift_swaps")
+      .select("id, shift_id, from_staff_id, accepted_by, status, note, created_at, shifts!inner(work_date, start_minute, end_minute)")
+      .order("created_at", { ascending: false }),
   ]);
 
   if (staffResult.error) throw staffResult.error;
@@ -88,6 +108,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
   if (punchResult.error) throw punchResult.error;
   if (payrollResult.error) throw payrollResult.error;
   if (requestResult.error) throw requestResult.error;
+  if (swapResult.error) throw swapResult.error;
 
   return {
     staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
@@ -95,6 +116,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
     punches: (punchResult.data || []).map(toPunch),
     payrolls: payrollResult.data || [],
     shiftRequests: (requestResult.data || []).map(toShiftRequest),
+    shiftSwaps: (swapResult.data || []).map(toShiftSwap),
     weekStart,
     weekEnd,
     loadedAt: new Date(),
@@ -103,7 +125,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
 
 export async function fetchStaffSnapshot(client, staffId, weekStart) {
   const weekEnd = addDays(weekStart, 6);
-  const [shiftResult, payrollResult, requestResult] = await Promise.all([
+  const [shiftResult, payrollResult, requestResult, swapResult] = await Promise.all([
     client
       .from("shifts")
       .select("id, work_date, staff_id, start_minute, end_minute, note, status")
@@ -127,14 +149,21 @@ export async function fetchStaffSnapshot(client, staffId, weekStart) {
       .lte("work_date", weekEnd)
       .order("work_date")
       .order("created_at", { ascending: false }),
+    client
+      .from("shift_swaps")
+      .select("id, shift_id, from_staff_id, accepted_by, status, note, created_at, shifts!inner(work_date, start_minute, end_minute)")
+      .eq("status", "open")
+      .order("created_at", { ascending: false }),
   ]);
   if (shiftResult.error) throw shiftResult.error;
   if (payrollResult.error) throw payrollResult.error;
   if (requestResult.error) throw requestResult.error;
+  if (swapResult.error) throw swapResult.error;
   return {
     shifts: (shiftResult.data || []).map(toShift),
     payrolls: payrollResult.data || [],
     shiftRequests: (requestResult.data || []).map(toShiftRequest),
+    shiftSwaps: (swapResult.data || []).map(toShiftSwap),
     weekStart,
     weekEnd,
     loadedAt: new Date(),
@@ -254,6 +283,27 @@ export async function updateOnlineShiftRequest(client, requestId, status, manage
     .update({ status, manager_note: managerNote.trim() })
     .eq("id", requestId);
   if (error) throw error;
+}
+
+export async function saveOnlineShiftSwap(client, shiftId, staffId, note = "") {
+  const { error } = await client.from("shift_swaps").insert({
+    shift_id: shiftId,
+    from_staff_id: staffId,
+    status: "open",
+    note: note.trim(),
+  });
+  if (error) throw error;
+}
+
+export async function cancelOnlineShiftSwap(client, swapId) {
+  const { error } = await client.from("shift_swaps").update({ status: "cancelled" }).eq("id", swapId);
+  if (error) throw error;
+}
+
+export async function acceptOnlineShiftSwap(client, swapId) {
+  const { data, error } = await client.rpc("accept_shift_swap", { p_swap_id: swapId });
+  if (error) throw error;
+  return data;
 }
 
 export async function saveOnlinePunch(client, form) {

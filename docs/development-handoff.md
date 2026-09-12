@@ -86,7 +86,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 
 次は、スタッフが公開済みシフトの交代を申請し、他スタッフが受諾できる機能を実装します。先着1名の確定処理は既存の`accept_shift_swap` RPCを利用し、メール通知はEdge Functionで追加します。
 
-スタッフAuth招待の実装ファイルは`supabase/functions/invite-staff/index.ts`です。テスト用Functionはデプロイ済みで、本番用Functionのデプロイと招待メール確認が残っています。
+スタッフAuth招待の実装ファイルは`supabase/functions/invite-staff/index.ts`です。テスト用Functionはデプロイ済みで、本番用Functionのデプロイと招待メール確認が残っています。シフト交代のRLSとRPC更新は`supabase/migrations/202609120001_shift_swap_access.sql`です。
 
 ## Supabaseマイグレーション
 
@@ -98,6 +98,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 202609110003_payroll_period_unique.sql
 202609110004_remove_closed_shift_status.sql
 202609110005_staff_codes.sql
+202609120001_shift_swap_access.sql
 ```
 
 既存の本番・テストプロジェクトでは、追加ファイルを実行済みかSupabase Dashboardで確認します。特に`003`から`005`は既存プロジェクト作成後に追加されたため、未実行なら対象DBで実行してください。

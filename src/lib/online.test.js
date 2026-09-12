@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   fetchManagerSnapshot,
+  acceptOnlineShiftSwap,
+  cancelOnlineShiftSwap,
   inviteOnlineStaff,
   saveOnlineShiftRequest,
+  saveOnlineShiftSwap,
   saveOnlineStaff,
   updateOnlineShiftRequest,
   withdrawOnlineShiftRequest,
@@ -108,6 +111,26 @@ describe("online manager data", () => {
       { type: "update", payload: { status: "approved", manager_note: "" } },
       { type: "eq", field: "id", value: "request-a" },
     ]);
+  });
+
+  it("creates, cancels, and accepts a shift swap", async () => {
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const rpc = vi.fn().mockResolvedValue({ data: { id: "swap-a" }, error: null });
+    const client = { from: vi.fn(() => ({ insert, update })), rpc };
+
+    await saveOnlineShiftSwap(client, "shift-a", "staff-a", "よろしくお願いします");
+    await cancelOnlineShiftSwap(client, "swap-a");
+    await acceptOnlineShiftSwap(client, "swap-a");
+
+    expect(insert).toHaveBeenCalledWith({
+      shift_id: "shift-a",
+      from_staff_id: "staff-a",
+      status: "open",
+      note: "よろしくお願いします",
+    });
+    expect(update).toHaveBeenCalledWith({ status: "cancelled" });
+    expect(rpc).toHaveBeenCalledWith("accept_shift_swap", { p_swap_id: "swap-a" });
   });
 
   it("loads and maps staff and one week's shifts", async () => {

@@ -342,6 +342,12 @@ supabase/migrations/202609110004_remove_closed_shift_status.sql
 supabase/migrations/202609110005_staff_codes.sql
 ~~~
 
+シフト交代を有効にするため、次のSQLを本番・テスト両方のDBで一度実行します。
+
+~~~text
+supabase/migrations/202609120001_shift_swap_access.sql
+~~~
+
 この段階では、店舗タブレットがまだlocalStorageを使っている場合、オンライン管理画面と店舗端末のデータが分離します。実運用で混在させず、開発用データまたは移行後のテスト環境で確認します。
 
 ### Phase 2: 店舗タブレットのSupabase連携

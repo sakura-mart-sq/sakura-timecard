@@ -37,16 +37,19 @@ import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
   fetchStaffSnapshot,
+  acceptOnlineShiftSwap,
   inviteOnlineStaff,
   onlinePayrollRows,
   onlinePunchRows,
   saveOnlineShiftRequest,
+  saveOnlineShiftSwap,
   saveOnlinePunch,
   saveOnlinePayroll,
   saveOnlineShift,
   saveOnlineStaff,
   updateOnlineShiftRequest,
   withdrawOnlineShiftRequest,
+  cancelOnlineShiftSwap,
 } from "./lib/online.js";
 import { supabase, supabaseConfigured, supabaseMode } from "./lib/supabase.js";
 import {
@@ -148,6 +151,8 @@ export default function App() {
   const [showOnlineShiftDialog, setShowOnlineShiftDialog] = useState(false);
   const [onlineRequestForm, setOnlineRequestForm] = useState(() => emptyOnlineRequestForm(dateKey(new Date())));
   const [showOnlineRequestDialog, setShowOnlineRequestDialog] = useState(false);
+  const [onlineSwapForm, setOnlineSwapForm] = useState({ shiftId: "", note: "" });
+  const [showOnlineSwapDialog, setShowOnlineSwapDialog] = useState(false);
   const [onlinePunchForm, setOnlinePunchForm] = useState(null);
   const [showOnlinePunchDialog, setShowOnlinePunchDialog] = useState(false);
 
@@ -377,6 +382,43 @@ export default function App() {
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "シフト希望を更新できませんでした。");
+    }
+  }
+
+  function openOnlineSwapDialog(shiftId) {
+    setOnlineSwapForm({ shiftId, note: "" });
+    setShowOnlineSwapDialog(true);
+  }
+
+  async function handleSaveOnlineSwap(event) {
+    event.preventDefault();
+    if (!supabase || !onlineStaffId) return;
+    try {
+      await saveOnlineShiftSwap(supabase, onlineSwapForm.shiftId, onlineStaffId, onlineSwapForm.note);
+      setShowOnlineSwapDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト交代を申請できませんでした。");
+    }
+  }
+
+  async function handleCancelOnlineSwap(swapId) {
+    if (!supabase) return;
+    try {
+      await cancelOnlineShiftSwap(supabase, swapId);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト交代の申請を取り下げできませんでした。");
+    }
+  }
+
+  async function handleAcceptOnlineSwap(swapId) {
+    if (!supabase) return;
+    try {
+      await acceptOnlineShiftSwap(supabase, swapId);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフト交代を受諾できませんでした。");
     }
   }
 
@@ -740,6 +782,10 @@ export default function App() {
             onRefresh={refreshOnlineData}
             onRequest={openOnlineRequestDialog}
             onWithdrawRequest={handleWithdrawOnlineRequest}
+            onRequestSwap={openOnlineSwapDialog}
+            onCancelSwap={handleCancelOnlineSwap}
+            onAcceptSwap={handleAcceptOnlineSwap}
+            staffId={onlineStaffId}
           />
         ) : null}
 
@@ -1071,6 +1117,17 @@ export default function App() {
         </Dialog>
       ) : null}
 
+      {showOnlineSwapDialog ? (
+        <Dialog onClose={() => setShowOnlineSwapDialog(false)} title="シフト交代">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineSwap}>
+            <h2>シフト交代を申請</h2>
+            <p className="note">このシフトを他のスタッフへ交代募集します。</p>
+            <label className="field"><span>メモ</span><input value={onlineSwapForm.note} onChange={(event) => setOnlineSwapForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineSwapDialog(false)} type="button">キャンセル</button><button type="submit">交代を申請</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
       {showOnlinePunchDialog && onlinePunchForm ? (
         <Dialog onClose={() => setShowOnlinePunchDialog(false)} title="オンライン勤務記録">
           <form className="dialog-panel" onSubmit={handleSaveOnlinePunch}>
@@ -1248,7 +1305,7 @@ export default function App() {
   );
 }
 
-function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest }) {
+function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest, onRequestSwap, onCancelSwap, onAcceptSwap, staffId }) {
   const dates = data ? weekDates(data.weekStart) : [];
   return (
     <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
@@ -1276,11 +1333,22 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
                 {dates.map((date) => {
                   const shifts = data.shifts.filter((shift) => shift.date === date);
                   return shifts.length ? shifts.map((shift) => (
-                    <tr key={shift.id}><td>{weekDayLabel(date, "en")}</td><td>{displayShiftLabel(shift)}</td><td>{shift.note || ""}</td></tr>
+                    <tr key={shift.id}><td>{weekDayLabel(date, "en")}</td><td>{displayShiftLabel(shift)}</td><td>{shift.note || ""} <button className="compact-edit ghost" onClick={() => onRequestSwap(shift.id)} type="button">Request swap</button></td></tr>
                   )) : <tr key={date}><td>{weekDayLabel(date, "en")}</td><td colSpan="2" className="muted-cell">No shift</td></tr>;
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="online-staff-list">
+            <h3>Open Shift Swaps</h3>
+            {data.shiftSwaps.length ? data.shiftSwaps.map((swap) => (
+              <div className="online-staff-row" key={swap.id}>
+                <span>{swap.date}</span>
+                <span>{minutesToTime(swap.start)} - {minutesToTime(swap.end)}</span>
+                <span>{swap.note}</span>
+                {swap.fromStaffId === staffId ? <button className="compact-edit ghost" onClick={() => onCancelSwap(swap.id)} type="button">Cancel</button> : <button className="compact-edit ghost" onClick={() => onAcceptSwap(swap.id)} type="button">Accept</button>}
+              </div>
+            )) : <p className="empty">No open shift swaps.</p>}
           </div>
           <div className="online-staff-list">
             <h3>My Shift Requests</h3>
@@ -1395,6 +1463,25 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                       <td>{request.status === "submitted" ? <><button className="compact-edit ghost" onClick={() => onUpdateRequest(request.id, "approved")} type="button">承認</button> <button className="compact-edit ghost" onClick={() => onUpdateRequest(request.id, "rejected")} type="button">却下</button></> : "-"}</td>
                     </tr>
                   )) : <tr><td colSpan="6" className="muted-cell">シフト希望はありません。</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="online-staff-list">
+            <div className="online-manager-heading"><h3>シフト交代</h3></div>
+            <div className="online-table-wrap">
+              <table className="online-table">
+                <thead><tr><th>日付</th><th>元スタッフ</th><th>時間</th><th>状態</th><th>メモ</th></tr></thead>
+                <tbody>
+                  {data.shiftSwaps.length ? data.shiftSwaps.map((swap) => (
+                    <tr key={swap.id}>
+                      <td>{swap.date}</td>
+                      <td>{staffById.get(swap.fromStaffId)?.name || "未登録"}</td>
+                      <td>{minutesToTime(swap.start)} - {minutesToTime(swap.end)}</td>
+                      <td>{swap.status}</td>
+                      <td>{swap.note}</td>
+                    </tr>
+                  )) : <tr><td colSpan="5" className="muted-cell">シフト交代の申請はありません。</td></tr>}
                 </tbody>
               </table>
             </div>
