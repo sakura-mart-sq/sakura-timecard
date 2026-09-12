@@ -162,8 +162,22 @@ export async function saveOnlineStaff(client, form) {
   }
   if (form.code) {
     const { error } = await client.from("staff_codes").upsert({ staff_id: staffId, code: form.code.trim() }, { onConflict: "staff_id" });
-    if (error) throw error;
+    if (error) {
+      // Do not leave an online staff row without its required code after a failed create.
+      if (!form.id) await client.from("staff").delete().eq("id", staffId);
+      throw error;
+    }
   }
+  return staffId;
+}
+
+export async function inviteOnlineStaff(client, { staffId, email }) {
+  const { data, error } = await client.functions.invoke("invite-staff", {
+    body: { staffId, email: email.trim() },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
 
 export async function saveOnlineShift(client, form) {

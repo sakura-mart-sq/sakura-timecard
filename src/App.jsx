@@ -37,6 +37,7 @@ import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
   fetchStaffSnapshot,
+  inviteOnlineStaff,
   onlinePayrollRows,
   onlinePunchRows,
   saveOnlinePunch,
@@ -87,7 +88,7 @@ const emptyStaffForm = () => ({
   code: "",
 });
 
-const emptyOnlineStaffForm = () => ({ id: "", name: "", wage: "17.40", code: "", active: true });
+const emptyOnlineStaffForm = () => ({ id: "", name: "", wage: "17.40", code: "", email: "", active: true });
 const emptyOnlineShiftForm = (date, staffId = "") => ({
   id: "",
   date,
@@ -246,6 +247,7 @@ export default function App() {
       name: person.name,
       wage: person.wage.toFixed(2),
       code: "",
+      email: "",
       active: person.active,
     } : emptyOnlineStaffForm());
     setShowOnlineStaffDialog(true);
@@ -288,12 +290,21 @@ export default function App() {
       setOnlineDataError("新規スタッフのコードは5桁の数字にしてください。");
       return;
     }
+    if (!onlineStaffForm.id && onlineSnapshot?.staff.some((person) => person.code === onlineStaffForm.code.trim())) {
+      setOnlineDataError("そのスタッフコードはすでに使われています。別の5桁コードを入力してください。");
+      return;
+    }
     try {
-      await saveOnlineStaff(supabase, onlineStaffForm);
+      const staffId = await saveOnlineStaff(supabase, onlineStaffForm);
+      if (onlineStaffForm.email.trim()) {
+        await inviteOnlineStaff(supabase, { staffId, email: onlineStaffForm.email });
+      }
       setShowOnlineStaffDialog(false);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "スタッフを保存できませんでした。");
+      setOnlineDataError(error?.code === "23505"
+        ? "そのスタッフコードはすでに使われています。別の5桁コードを入力してください。"
+        : error?.message || "スタッフを保存できませんでした。");
     }
   }
 
@@ -967,6 +978,7 @@ export default function App() {
             <label className="field"><span>名前</span><input required value={onlineStaffForm.name} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, name: event.target.value }))} /></label>
             <label className="field"><span>時給</span><input min="0" required step="0.01" type="number" value={onlineStaffForm.wage} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, wage: event.target.value }))} /></label>
             <label className="field"><span>{onlineStaffForm.id ? "新しいスタッフコード（変更時のみ）" : "スタッフコード"}</span><input inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required={!onlineStaffForm.id} value={onlineStaffForm.code} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, code: event.target.value }))} /></label>
+            <label className="field"><span>ログイン用メールアドレス{onlineStaffForm.id ? "（入力すると招待・紐付け）" : ""}</span><input autoComplete="email" required={!onlineStaffForm.id} type="email" value={onlineStaffForm.email} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, email: event.target.value }))} /></label>
             <label className="checkbox-field"><input checked={onlineStaffForm.active} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, active: event.target.checked }))} type="checkbox" /><span>有効</span></label>
             <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
           </form>

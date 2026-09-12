@@ -15,7 +15,7 @@ feature/supabase-manager-portal
 最新コミット:
 
 ```text
-9108e26 Add staff online shift portal
+Auth招待機能を実装（Supabase Functionデプロイ待ち）
 ```
 
 このブランチは店舗GitHubリポジトリへプッシュ済みです。作業再開時は、GitHub上の既存Pull Requestが最新コミットを含んでいるか確認してください。
@@ -49,6 +49,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 - Supabase Authログイン
 - 管理者プロフィールによる権限確認
 - Supabase上のスタッフ追加・編集
+- 管理画面からのスタッフAuth招待・自動紐付け（Edge Function実装済み）
 - 5桁スタッフコードの管理者向け表示・変更
 - 週次シフトの表示、追加、編集
 - 下書き・公開ステータス
@@ -97,6 +98,8 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 - `profiles`を自動作成
 - `service_role`キーはEdge Functionのサーバー側だけに置く
 - ブラウザ、GitHub Pages、`.env.local`には`service_role`キーを絶対に置かない
+
+実装ファイルは`supabase/functions/invite-staff/index.ts`です。Supabase本番・テスト両方のFunctionへデプロイし、各プロジェクトのFunction Secretに`SUPABASE_SERVICE_ROLE_KEY`と必要に応じて`INVITE_REDIRECT_URL`を設定します。
 
 ## Supabaseマイグレーション
 
