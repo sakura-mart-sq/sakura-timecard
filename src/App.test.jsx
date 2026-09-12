@@ -144,7 +144,7 @@ describe("App", () => {
 
     const punchList = document.getElementById("punchList");
     expect(punchList?.textContent).toContain("Cさん");
-    expect(punchList?.textContent).toContain("2026-08-28 12:00");
+    expect(punchList?.textContent).toContain("2026-08-28 12:05");
     expect(punchList?.textContent).toContain("勤務中");
   });
 

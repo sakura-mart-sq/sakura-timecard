@@ -8,7 +8,6 @@ import {
   dateTimeFromFields,
   dateToMinutes,
   minutesToTime,
-  roundToQuarter,
   timeLabel,
 } from "./time.js";
 
@@ -216,11 +215,17 @@ export function displayShiftTimes(punch, shift) {
   return { start, end };
 }
 
+function minutePrecision(date) {
+  const result = new Date(date);
+  result.setSeconds(0, 0);
+  return result;
+}
+
 export function applyClockIn(state, staffId, shiftId, now = new Date()) {
   if (!staffId || openPunchFor(state, staffId)) return state;
   const shift = state.shifts.find((item) => item.id === shiftId);
   if (!shift || shiftPunch(state, shift)) return state;
-  const startAt = roundToQuarter(now);
+  const startAt = minutePrecision(now);
   return {
     ...state,
     punches: [
@@ -241,7 +246,7 @@ export function applyEmergencyClockIn(state, staffId, now = new Date()) {
   if (!staffId || openPunchFor(state, staffId)) return state;
   const person = state.staff.find((item) => item.id === staffId);
   if (!person) return state;
-  const startAt = roundToQuarter(now);
+  const startAt = minutePrecision(now);
   return {
     ...state,
     punches: [
@@ -265,7 +270,7 @@ export function applyClockOut(state, staffId, now = new Date()) {
     ...state,
     punches: state.punches.map((punch) => (
       punch.id === active.id
-        ? { ...punch, endAt: roundToQuarter(now).toISOString() }
+        ? { ...punch, endAt: minutePrecision(now).toISOString() }
         : punch
     )),
   };
@@ -336,7 +341,7 @@ export function upsertShift(state, shiftInput) {
   };
 }
 
-export function updatePunchRecord(state, punchId, startDate, startTime, endDate, endTime) {
+export function updatePunchRecord(state, punchId, startDate, startTime, endDate, endTime, payrollFromActualStart = false) {
   const start = dateTimeFromFields(startDate, startTime);
   if (!start) return { state, error: "開始日時が正しくありません。" };
   const hasPartialEnd = (endDate && !endTime) || (!endDate && endTime);
@@ -349,14 +354,19 @@ export function updatePunchRecord(state, punchId, startDate, startTime, endDate,
       ...state,
       punches: state.punches.map((punch) => (
         punch.id === punchId
-          ? { ...punch, startAt: start.toISOString(), endAt: end ? end.toISOString() : null }
+          ? {
+            ...punch,
+            startAt: start.toISOString(),
+            endAt: end ? end.toISOString() : null,
+            payrollFromActualStart,
+          }
           : punch
       )),
     },
   };
 }
 
-export function createPunchRecord(state, staffId, startDate, startTime, endDate, endTime) {
+export function createPunchRecord(state, staffId, startDate, startTime, endDate, endTime, payrollFromActualStart = false) {
   const person = state.staff.find((item) => item.id === staffId);
   if (!person) return { state, error: "スタッフを選択してください。" };
 
@@ -387,6 +397,7 @@ export function createPunchRecord(state, staffId, startDate, startTime, endDate,
     scheduledStaffId: matchingShift?.staffId || staffId,
     startAt: start.toISOString(),
     endAt: end ? end.toISOString() : null,
+    payrollFromActualStart,
   };
 
   return {
@@ -395,6 +406,34 @@ export function createPunchRecord(state, staffId, startDate, startTime, endDate,
       punches: [...state.punches, nextPunch],
     },
   };
+}
+
+function scheduledShiftForPunch(state, punch, started) {
+  const scheduledStaffId = punch.scheduledStaffId || punch.staffId;
+  const candidates = state.shifts.filter((shift) => (
+    shift.date === dateKey(started) && shift.staffId === scheduledStaffId
+  ));
+  if (punch.shiftId) {
+    const exact = candidates.find((shift) => shift.id === punch.shiftId);
+    if (exact) return exact;
+  }
+  return candidates.sort((a, b) => Math.abs(a.start - dateToMinutes(started)) - Math.abs(b.start - dateToMinutes(started)))[0];
+}
+
+export function paidMinutes(state, punch) {
+  if (!punch.endAt) return 0;
+  const started = new Date(punch.startAt);
+  const ended = new Date(punch.endAt);
+  if (Number.isNaN(started.getTime()) || Number.isNaN(ended.getTime())) return 0;
+  let paidStart = started;
+  if (!punch.payrollFromActualStart) {
+    const shift = scheduledShiftForPunch(state, punch, started);
+    if (shift) {
+      const scheduledStart = dateTimeFromDateKeyAndMinutes(shift.date, shift.start);
+      if (scheduledStart > paidStart) paidStart = scheduledStart;
+    }
+  }
+  return Math.max(0, (ended - paidStart) / 60000);
 }
 
 export function updateShiftNote(state, date, value) {
@@ -426,9 +465,7 @@ export function payrollRows(state, startDate, endDate, staffId = "all") {
         const punchStart = new Date(punch.startAt);
         return punchStart >= start && punchStart <= end;
       });
-      const minutes = punches.reduce((sum, punch) => (
-        sum + Math.max(0, (new Date(punch.endAt) - new Date(punch.startAt)) / 60000)
-      ), 0);
+      const minutes = punches.reduce((sum, punch) => sum + paidMinutes(state, punch), 0);
       const hours = minutes / 60;
       return { person, hours, pay: hours * Number(person.wage) };
     });
@@ -447,7 +484,7 @@ export function punchRows(state, startDate, endDate, staffId = "all") {
     .map((punch) => {
       const started = new Date(punch.startAt);
       const ended = punch.endAt ? new Date(punch.endAt) : null;
-      const minutes = ended ? Math.max(0, (ended - started) / 60000) : 0;
+      const minutes = ended ? paidMinutes(state, punch) : 0;
       const person = state.staff.find((item) => item.id === punch.staffId);
       return {
         date: dateKey(started),

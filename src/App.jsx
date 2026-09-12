@@ -35,9 +35,21 @@ import {
 } from "./lib/model.js";
 import { loadState, saveState } from "./lib/storage.js";
 import {
+  fetchManagerSnapshot,
+  fetchStaffSnapshot,
+  onlinePayrollRows,
+  onlinePunchRows,
+  saveOnlinePunch,
+  saveOnlinePayroll,
+  saveOnlineShift,
+  saveOnlineStaff,
+} from "./lib/online.js";
+import { supabase, supabaseConfigured, supabaseMode } from "./lib/supabase.js";
+import {
   addDays,
   dateKey,
   dateTimeLabel,
+  dateTimeFromFields,
   formatter,
   minutesToTime,
   mondayOf,
@@ -65,6 +77,7 @@ const emptyPunchForm = {
   startTime: "",
   endDate: "",
   endTime: "",
+  payrollFromActualStart: false,
 };
 
 const emptyStaffForm = () => ({
@@ -72,6 +85,17 @@ const emptyStaffForm = () => ({
   name: "",
   wage: "17.40",
   code: "",
+});
+
+const emptyOnlineStaffForm = () => ({ id: "", name: "", wage: "17.40", code: "", active: true });
+const emptyOnlineShiftForm = (date, staffId = "") => ({
+  id: "",
+  date,
+  staffId,
+  start: "09:00",
+  end: "17:00",
+  note: "",
+  status: "published",
 });
 
 export default function App() {
@@ -103,6 +127,22 @@ export default function App() {
     code: generateStaffCode(new Set()),
   }));
   const [punchForm, setPunchForm] = useState(emptyPunchForm);
+  const [onlineSession, setOnlineSession] = useState(null);
+  const [onlineRole, setOnlineRole] = useState("");
+  const [onlineStaffId, setOnlineStaffId] = useState("");
+  const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
+  const [onlineAuthError, setOnlineAuthError] = useState("");
+  const [showOnlineLogin, setShowOnlineLogin] = useState(false);
+  const [onlineSnapshot, setOnlineSnapshot] = useState(null);
+  const [onlineDataLoading, setOnlineDataLoading] = useState(false);
+  const [onlineDataError, setOnlineDataError] = useState("");
+  const [onlineWeekStart, setOnlineWeekStart] = useState(() => mondayOf(dateKey(new Date())));
+  const [onlineStaffForm, setOnlineStaffForm] = useState(emptyOnlineStaffForm);
+  const [onlineShiftForm, setOnlineShiftForm] = useState(() => emptyOnlineShiftForm(dateKey(new Date())));
+  const [showOnlineStaffDialog, setShowOnlineStaffDialog] = useState(false);
+  const [showOnlineShiftDialog, setShowOnlineShiftDialog] = useState(false);
+  const [onlinePunchForm, setOnlinePunchForm] = useState(null);
+  const [showOnlinePunchDialog, setShowOnlinePunchDialog] = useState(false);
 
   useEffect(() => {
     saveState(state);
@@ -118,6 +158,226 @@ export default function App() {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!supabase) {
+      setOnlineAuthLoading(false);
+      return undefined;
+    }
+
+    let mounted = true;
+    const loadOnlineSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setOnlineSession(session);
+      if (session?.user) await loadOnlineRole(session.user.id);
+      setOnlineAuthLoading(false);
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      setOnlineSession(session);
+      if (!session) {
+        setOnlineRole("");
+        setOnlineAuthError("");
+      }
+      if (event === "SIGNED_IN") setShowOnlineLogin(false);
+    });
+    loadOnlineSession();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function loadOnlineRole(userId) {
+    if (!supabase || !userId) return "";
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("role, active, staff_id")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      setOnlineAuthError("管理者プロフィールを確認できませんでした。");
+      setOnlineRole("");
+      return "";
+    }
+    const role = data?.active ? data.role : "";
+    setOnlineRole(role);
+    setOnlineStaffId(data?.active ? data.staff_id || "" : "");
+    if (role !== "manager" && role !== "staff") {
+      setOnlineAuthError("このアカウントには利用権限がありません。");
+      await supabase.auth.signOut();
+    }
+    return role;
+  }
+
+  async function handleOnlineLogin(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "").trim();
+    const password = String(form.get("password") || "");
+    setOnlineAuthLoading(true);
+    setOnlineAuthError("");
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError("メールアドレスまたはパスワードを確認してください。");
+      return;
+    }
+    const role = await loadOnlineRole(data.user?.id);
+    setOnlineAuthLoading(false);
+    if (role !== "manager" && role !== "staff") return;
+    event.currentTarget.reset();
+  }
+
+  async function handleOnlineLogout() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setOnlineSession(null);
+    setOnlineRole("");
+    setOnlineStaffId("");
+    setOnlineSnapshot(null);
+  }
+
+  function openOnlineStaffDialog(person = null) {
+    setOnlineStaffForm(person ? {
+      id: person.id,
+      name: person.name,
+      wage: person.wage.toFixed(2),
+      code: "",
+      active: person.active,
+    } : emptyOnlineStaffForm());
+    setShowOnlineStaffDialog(true);
+  }
+
+  function openOnlineShiftDialog(shift = null) {
+    setOnlineShiftForm(shift ? {
+      id: shift.id,
+      date: shift.date,
+      staffId: shift.staffId,
+      start: minutesToTime(shift.start),
+      end: minutesToTime(shift.end),
+      note: shift.note,
+      status: shift.status,
+    } : emptyOnlineShiftForm(onlineWeekStart, onlineSnapshot?.staff[0]?.id || ""));
+    setShowOnlineShiftDialog(true);
+  }
+
+  function openOnlinePunchDialog(punch = null) {
+    const start = punch ? new Date(punch.startAt) : new Date();
+    const end = punch?.endAt ? new Date(punch.endAt) : null;
+    setOnlinePunchForm({
+      id: punch?.id || "",
+      staffId: punch?.staffId || onlineSnapshot?.staff[0]?.id || "",
+      shiftId: punch?.shiftId || "",
+      scheduledStaffId: punch?.scheduledStaffId || punch?.staffId || "",
+      startDate: dateKey(start),
+      startTime: timeLabel(start),
+      endDate: end ? dateKey(end) : "",
+      endTime: end ? timeLabel(end) : "",
+      payrollFromActualStart: Boolean(punch?.payrollFromActualStart),
+    });
+    setShowOnlinePunchDialog(true);
+  }
+
+  async function handleSaveOnlineStaff(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    if (!onlineStaffForm.id && !/^\d{5}$/.test(onlineStaffForm.code.trim())) {
+      setOnlineDataError("新規スタッフのコードは5桁の数字にしてください。");
+      return;
+    }
+    try {
+      await saveOnlineStaff(supabase, onlineStaffForm);
+      setShowOnlineStaffDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "スタッフを保存できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlineShift(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const start = timeToMinutes(onlineShiftForm.start);
+    const end = timeToMinutes(onlineShiftForm.end);
+    if (!onlineShiftForm.staffId || end <= start) {
+      setOnlineDataError("スタッフと正しい勤務時間を指定してください。");
+      return;
+    }
+    try {
+      await saveOnlineShift(supabase, { ...onlineShiftForm, start, end });
+      setShowOnlineShiftDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフトを保存できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlinePunch(event) {
+    event.preventDefault();
+    if (!supabase || !onlinePunchForm) return;
+    const form = new FormData(event.currentTarget);
+    const values = {
+      ...onlinePunchForm,
+      staffId: String(form.get("staffId") || onlinePunchForm.staffId),
+      startDate: String(form.get("startDate") || ""),
+      startTime: String(form.get("startTime") || ""),
+      endDate: String(form.get("endDate") || ""),
+      endTime: String(form.get("endTime") || ""),
+      payrollFromActualStart: form.get("payrollFromActualStart") === "on",
+    };
+    const start = dateTimeFromFields(values.startDate, values.startTime);
+    const end = values.endDate && values.endTime ? dateTimeFromFields(values.endDate, values.endTime) : null;
+    if (!start || (end && end <= start)) {
+      setOnlineDataError("勤務開始・終了時刻を確認してください。");
+      return;
+    }
+    try {
+      await saveOnlinePunch(supabase, values);
+      setShowOnlinePunchDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "勤務記録を保存できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlinePayroll(row, status) {
+    if (!supabase || !onlineSnapshot || !onlineSession) return;
+    try {
+      await saveOnlinePayroll(
+        supabase,
+        row,
+        onlineSnapshot.weekStart,
+        onlineSnapshot.weekEnd,
+        status,
+        onlineSession.user.id,
+      );
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "給与データを保存できませんでした。");
+    }
+  }
+
+  async function refreshOnlineData() {
+    if (!supabase || !onlineRole) return;
+    setOnlineDataLoading(true);
+    setOnlineDataError("");
+    try {
+      setOnlineSnapshot(onlineRole === "manager"
+        ? await fetchManagerSnapshot(supabase, onlineWeekStart)
+        : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart));
+    } catch (error) {
+      setOnlineDataError(error?.message || "オンラインデータを読み込めませんでした。");
+    } finally {
+      setOnlineDataLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (onlineRole === "manager" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
+  }, [onlineRole, onlineStaffId, onlineWeekStart]);
 
   const today = dateKey(now);
   const weeklyDates = useMemo(() => weekDates(shiftWeekStart), [shiftWeekStart]);
@@ -185,6 +445,7 @@ export default function App() {
       startTime: timeLabel(start),
       endDate: end ? dateKey(end) : "",
       endTime: end ? timeLabel(end) : "",
+      payrollFromActualStart: Boolean(punch.payrollFromActualStart),
     });
     setShowPunchDialog(true);
   }
@@ -199,6 +460,7 @@ export default function App() {
       startTime: "09:00",
       endDate: today,
       endTime: "17:00",
+      payrollFromActualStart: false,
     });
     setShowPunchDialog(true);
   }
@@ -292,6 +554,7 @@ export default function App() {
     const startTime = String(form.get("startTime") || punchForm.startTime);
     const endDate = String(form.get("endDate") || punchForm.endDate);
     const endTime = String(form.get("endTime") || punchForm.endTime);
+    const payrollFromActualStart = form.get("payrollFromActualStart") === "on";
 
     const result = punchForm.mode === "create"
       ? createPunchRecord(
@@ -301,6 +564,7 @@ export default function App() {
         startTime,
         endDate,
         endTime,
+        payrollFromActualStart,
       )
       : updatePunchRecord(
         state,
@@ -309,6 +573,7 @@ export default function App() {
         startTime,
         endDate,
         endTime,
+        payrollFromActualStart,
       );
     if (result.error) {
       window.alert(result.error);
@@ -357,6 +622,8 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
+  const onlinePortalActive = onlineSession && (onlineRole === "manager" || onlineRole === "staff");
+  const staffVisible = view === "staff" && !onlinePortalActive;
 
   return (
     <>
@@ -372,8 +639,56 @@ export default function App() {
           </nav>
         </header>
 
+        {supabaseConfigured ? (
+          <div className="online-bar" role="status">
+            {onlinePortalActive ? (
+              <>
+                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "manager" ? "Online manager" : "Online staff"}: {onlineSession.user.email}</span>
+                <button className="ghost" onClick={handleOnlineLogout} type="button">ログアウト</button>
+              </>
+            ) : (
+              <>
+                <span>{supabaseMode === "test" ? "テスト用オンライン管理画面" : "オンライン管理画面"}</span>
+                <button onClick={() => {
+                  setOnlineAuthError("");
+                  setShowOnlineLogin(true);
+                }} type="button">オンラインログイン</button>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {onlineSession && onlineRole === "manager" ? (
+          <OnlineManagerPanel
+            data={onlineSnapshot}
+            error={onlineDataError}
+            loading={onlineDataLoading}
+            onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
+            onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
+            onAddShift={() => openOnlineShiftDialog()}
+            onAddStaff={() => openOnlineStaffDialog()}
+            onEditShift={openOnlineShiftDialog}
+            onEditStaff={openOnlineStaffDialog}
+            onAddPunch={() => openOnlinePunchDialog()}
+            onEditPunch={openOnlinePunchDialog}
+            onSavePayroll={handleSaveOnlinePayroll}
+            onRefresh={refreshOnlineData}
+          />
+        ) : null}
+
+        {onlineSession && onlineRole === "staff" ? (
+          <OnlineStaffPanel
+            data={onlineSnapshot}
+            error={onlineDataError}
+            loading={onlineDataLoading}
+            onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
+            onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
+            onRefresh={refreshOnlineData}
+          />
+        ) : null}
+
         <main>
-          <section className={`view ${view === "staff" ? "active" : ""}`} id="staffView">
+          <section className={`view ${staffVisible ? "active" : ""}`} id="staffView">
             <div className="panel tablet-panel">
               <div className="panel-heading">
                 <h2>Sign In</h2>
@@ -623,6 +938,69 @@ export default function App() {
         </Dialog>
       ) : null}
 
+      {showOnlineLogin ? (
+        <Dialog onClose={() => setShowOnlineLogin(false)} title="オンラインログイン">
+          <form className="dialog-panel" onSubmit={handleOnlineLogin}>
+            <h2>オンラインログイン</h2>
+            <p className="note">Supabaseに登録したアカウントでログインします。</p>
+            <label className="field">
+              <span>メールアドレス</span>
+              <input name="email" type="email" autoComplete="username" required />
+            </label>
+            <label className="field">
+              <span>パスワード</span>
+              <input name="password" type="password" autoComplete="current-password" required />
+            </label>
+            <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
+            <div className="dialog-actions">
+              <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">キャンセル</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "確認中..." : "ログイン"}</button>
+            </div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showOnlineStaffDialog ? (
+        <Dialog onClose={() => setShowOnlineStaffDialog(false)} title="オンラインスタッフ管理">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineStaff}>
+            <h2>{onlineStaffForm.id ? "スタッフ変更" : "スタッフ追加"}</h2>
+            <label className="field"><span>名前</span><input required value={onlineStaffForm.name} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label className="field"><span>時給</span><input min="0" required step="0.01" type="number" value={onlineStaffForm.wage} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, wage: event.target.value }))} /></label>
+            <label className="field"><span>{onlineStaffForm.id ? "新しいスタッフコード（変更時のみ）" : "スタッフコード"}</span><input inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required={!onlineStaffForm.id} value={onlineStaffForm.code} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, code: event.target.value }))} /></label>
+            <label className="checkbox-field"><input checked={onlineStaffForm.active} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, active: event.target.checked }))} type="checkbox" /><span>有効</span></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showOnlineShiftDialog ? (
+        <Dialog onClose={() => setShowOnlineShiftDialog(false)} title="オンラインシフト管理">
+          <form className="dialog-panel" onSubmit={handleSaveOnlineShift}>
+            <h2>{onlineShiftForm.id ? "シフト変更" : "シフト追加"}</h2>
+            <label className="field"><span>日付</span><input required type="date" value={onlineShiftForm.date} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, date: event.target.value }))} /></label>
+            <label className="field"><span>スタッフ</span><select required value={onlineShiftForm.staffId} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, staffId: event.target.value }))}><option value="">選択してください</option>{(onlineSnapshot?.staff || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <label className="field"><span>開始</span><TimeSelect stepMinutes={15} value={onlineShiftForm.start} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, start: value }))} /></label>
+            <label className="field"><span>終了</span><TimeSelect stepMinutes={15} value={onlineShiftForm.end} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, end: value }))} /></label>
+            <label className="field"><span>備考</span><input value={onlineShiftForm.note} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <label className="field"><span>状態</span><select value={onlineShiftForm.status} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, status: event.target.value }))}><option value="draft">下書き</option><option value="published">公開</option></select></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineShiftDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showOnlinePunchDialog && onlinePunchForm ? (
+        <Dialog onClose={() => setShowOnlinePunchDialog(false)} title="オンライン勤務記録">
+          <form className="dialog-panel" onSubmit={handleSaveOnlinePunch}>
+            <h2>{onlinePunchForm.id ? "勤務記録修正" : "勤務記録追加"}</h2>
+            <label className="field"><span>スタッフ</span><select name="staffId" required value={onlinePunchForm.staffId} onChange={(event) => setOnlinePunchForm((current) => ({ ...current, staffId: event.target.value }))}><option value="">選択してください</option>{(onlineSnapshot?.staff || []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <label className="field"><span>開始</span><div className="date-time-fields"><input name="startDate" required type="date" value={onlinePunchForm.startDate} onChange={(event) => setOnlinePunchForm((current) => ({ ...current, startDate: event.target.value }))} /><TimeSelect name="startTime" stepMinutes={1} value={onlinePunchForm.startTime} onChange={(value) => setOnlinePunchForm((current) => ({ ...current, startTime: value }))} /></div></label>
+            <label className="field"><span>終了</span><div className="date-time-fields"><input name="endDate" type="date" value={onlinePunchForm.endDate} onChange={(event) => setOnlinePunchForm((current) => ({ ...current, endDate: event.target.value }))} /><TimeSelect allowEmpty name="endTime" stepMinutes={1} value={onlinePunchForm.endTime} onChange={(value) => setOnlinePunchForm((current) => ({ ...current, endTime: value }))} /></div></label>
+            <label className="checkbox-field"><input name="payrollFromActualStart" type="checkbox" checked={onlinePunchForm.payrollFromActualStart} onChange={(event) => setOnlinePunchForm((current) => ({ ...current, payrollFromActualStart: event.target.checked }))} /><span>早出として実打刻の開始時刻から給与計算</span></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlinePunchDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+
       {showShiftDialog ? (
         <Dialog onClose={() => setShowShiftDialog(false)} title="シフト追加">
           <form className="dialog-panel" onSubmit={handleSaveShift}>
@@ -724,6 +1102,7 @@ export default function App() {
                 />
                 <TimeSelect
                   name="startTime"
+                  stepMinutes={1}
                   value={punchForm.startTime}
                   onChange={(value) => setPunchForm((current) => ({ ...current, startTime: value }))}
                 />
@@ -741,10 +1120,20 @@ export default function App() {
                 <TimeSelect
                   allowEmpty
                   name="endTime"
+                  stepMinutes={1}
                   value={punchForm.endTime}
                   onChange={(value) => setPunchForm((current) => ({ ...current, endTime: value }))}
                 />
               </div>
+            </label>
+            <label className="checkbox-field">
+              <input
+                name="payrollFromActualStart"
+                type="checkbox"
+                checked={punchForm.payrollFromActualStart}
+                onChange={(event) => setPunchForm((current) => ({ ...current, payrollFromActualStart: event.target.checked }))}
+              />
+              <span>早出として実打刻の開始時刻から給与計算</span>
             </label>
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowPunchDialog(false)} type="button">キャンセル</button>
@@ -773,6 +1162,166 @@ export default function App() {
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh }) {
+  const dates = data ? weekDates(data.weekStart) : [];
+  return (
+    <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
+      <div className="online-manager-heading">
+        <div>
+          <p className="eyebrow">SUPABASE ONLINE</p>
+          <h2 id="onlineStaffHeading">My Shifts</h2>
+        </div>
+        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">{loading ? "Loading..." : "Refresh"}</button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {!data && loading ? <p className="empty">Loading your shifts.</p> : null}
+      {data ? (
+        <>
+          <div className="online-week-controls">
+            <button aria-label="Previous week" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+            <strong>{weekDayLabel(data.weekStart, "en")} - {weekDayLabel(data.weekEnd, "en")}</strong>
+            <button aria-label="Next week" className="ghost" onClick={onNextWeek} type="button">›</button>
+          </div>
+          <div className="online-table-wrap">
+            <table className="online-table">
+              <thead><tr><th>Date</th><th>Shift</th><th>Note</th></tr></thead>
+              <tbody>
+                {dates.map((date) => {
+                  const shifts = data.shifts.filter((shift) => shift.date === date);
+                  return shifts.length ? shifts.map((shift) => (
+                    <tr key={shift.id}><td>{weekDayLabel(date, "en")}</td><td>{displayShiftLabel(shift)}</td><td>{shift.note || ""}</td></tr>
+                  )) : <tr key={date}><td>{weekDayLabel(date, "en")}</td><td colSpan="2" className="muted-cell">No shift</td></tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="online-staff-list">
+            <h3>Published Payroll</h3>
+            {data.payrolls.length ? data.payrolls.map((payroll) => (
+              <div className="online-staff-row" key={payroll.id}>
+                <span>{payroll.period_start} - {payroll.period_end}</span>
+                <span>{(payroll.total_minutes / 60).toFixed(2)} hours</span>
+                <strong>{Number(payroll.total_pay).toFixed(2)}</strong>
+              </div>
+            )) : <p className="empty">No published payroll.</p>}
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll }) {
+  const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
+  const dates = data ? weekDates(data.weekStart) : [];
+  return (
+    <section className="online-manager-panel" aria-labelledby="onlineManagerHeading">
+      <div className="online-manager-heading">
+        <div>
+          <p className="eyebrow">SUPABASE ONLINE</p>
+          <h2 id="onlineManagerHeading">オンライン管理画面</h2>
+        </div>
+        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">
+          {loading ? "読み込み中..." : "更新"}
+        </button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      {!data && loading ? <p className="empty">Supabaseからデータを読み込んでいます。</p> : null}
+      {data ? (
+        <>
+          <div className="online-week-controls">
+            <button aria-label="オンラインの前の週" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+            <strong>{weekDayLabel(data.weekStart, "ja")} - {weekDayLabel(data.weekEnd, "ja")}</strong>
+            <button aria-label="オンラインの次の週" className="ghost" onClick={onNextWeek} type="button">›</button>
+          </div>
+          <div className="online-summary">
+            <span>スタッフ {data.staff.length}名</span>
+            <span>シフト {data.shifts.length}件</span>
+            <span>取得 {dateTimeLabel(data.loadedAt)}</span>
+          </div>
+          <div className="online-actions">
+            <button onClick={onAddShift} type="button">シフト追加</button>
+            <button className="secondary" onClick={onAddStaff} type="button">スタッフ追加</button>
+            <button className="ghost" onClick={onAddPunch} type="button">勤務記録追加</button>
+          </div>
+          <div className="online-table-wrap">
+            <table className="online-table">
+              <thead>
+                <tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {dates.map((date) => {
+                  const shifts = data.shifts.filter((shift) => shift.date === date);
+                  if (!shifts.length) {
+                    return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="5" className="muted-cell">シフトなし</td></tr>;
+                  }
+                  return shifts.map((shift) => (
+                    <tr key={shift.id}>
+                      <td>{weekDayLabel(date, "ja")}</td>
+                      <td>{staffById.get(shift.staffId)?.name || "未登録"}</td>
+                      <td>{displayShiftLabel(shift)}</td>
+                      <td>{shift.status === "draft" ? "下書き" : "公開"}</td>
+                      <td>{shift.note || ""}</td>
+                      <td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="online-staff-list">
+            <h3>スタッフ</h3>
+            {data.staff.length ? data.staff.map((person) => (
+              <div className="online-staff-row" key={person.id}>
+                <span>{person.name}</span>
+                <span>{person.active ? "有効" : "停止中"}</span>
+                <span>{person.wage.toFixed(2)} / 時間</span>
+                <span>コード {person.code || "未設定"}</span>
+                <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
+              </div>
+            )) : <p className="empty">スタッフはまだ登録されていません。</p>}
+          </div>
+          <div className="online-staff-list">
+            <h3>給与計算（表示中の週）</h3>
+            <div className="online-payroll-table">
+              {onlinePayrollRows(data).map((row) => (
+                <div className="online-staff-row online-payroll-row" key={row.person.id}>
+                  <span>{row.person.name}</span>
+                  <span>{row.hours.toFixed(2)}時間</span>
+                  <strong>{row.pay.toFixed(2)}</strong>
+                  {(() => {
+                    const saved = data.payrolls.find((payroll) => payroll.staff_id === row.person.id);
+                    const status = saved?.status || "未保存";
+                    const nextStatus = status === "未保存" ? "calculated" : status === "calculated" ? "finalized" : status === "finalized" ? "published" : "published";
+                    const label = status === "未保存" ? "保存" : status === "calculated" ? "確定" : status === "finalized" ? "公開" : "公開済み";
+                    return <button className="compact-edit ghost" disabled={status === "published"} onClick={() => onSavePayroll(row, nextStatus)} type="button">{label}</button>;
+                  })()}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="online-staff-list">
+            <div className="online-manager-heading">
+              <h3>勤務実績</h3>
+              <button className="ghost" onClick={onAddPunch} type="button">追加</button>
+            </div>
+            <div className="online-table-wrap">
+              <table className="online-table">
+                <thead><tr><th>日付</th><th>スタッフ</th><th>開始</th><th>終了</th><th>操作</th></tr></thead>
+                <tbody>
+                  {onlinePunchRows(data).length ? onlinePunchRows(data).map((punch) => (
+                    <tr key={punch.id}><td>{punch.date}</td><td>{punch.staff}</td><td>{punch.start}</td><td>{punch.end}</td><td><button className="compact-edit ghost" onClick={() => onEditPunch(punch)} type="button">修正</button></td></tr>
+                  )) : <tr><td colSpan="5" className="muted-cell">勤務実績はありません。</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </section>
   );
 }
 
@@ -900,10 +1449,10 @@ function SigninCard({ assigned, isSwap = false, onClockIn, shift }) {
   );
 }
 
-function TimeSelect({ allowEmpty = false, name, onChange, value }) {
+function TimeSelect({ allowEmpty = false, name, onChange, stepMinutes = 15, value }) {
   const options = [];
   if (allowEmpty) options.push(<option key="empty" value="">未入力</option>);
-  for (let minutes = 0; minutes < 24 * 60; minutes += 15) {
+  for (let minutes = 0; minutes < 24 * 60; minutes += stepMinutes) {
     const label = minutesToTime(minutes);
     options.push(<option key={label} value={label}>{label}</option>);
   }

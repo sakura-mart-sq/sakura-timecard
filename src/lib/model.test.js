@@ -6,6 +6,7 @@ import {
   createPunchRecord,
   createDefaultState,
   payrollRows,
+  paidMinutes,
   recentPunches,
   shiftPunch,
   signinChoicesForStaff,
@@ -45,7 +46,7 @@ describe("model helpers", () => {
       staffId: "staff-c",
       shiftId: "",
       scheduledStaffId: "staff-c",
-      startAt: "2026-08-27T19:00:00.000Z",
+      startAt: "2026-08-27T19:02:00.000Z",
       endAt: null,
     });
     const timeline = todaysTimelineShifts(state, new Date("2026-08-27T19:05:00.000Z"));
@@ -53,18 +54,18 @@ describe("model helpers", () => {
     expect(timeline[2]).toMatchObject({
       staffId: "staff-c",
       date: "2026-08-27",
-      start: 12 * 60,
-      end: 12 * 60 + 15,
+      start: 12 * 60 + 2,
+      end: 12 * 60 + 17,
     });
   });
 
   it("records sign in and sign out timestamps", () => {
-    const signedIn = applyClockIn(buildState(), "staff-a", "shift-a", new Date("2026-08-27T17:02:00.000Z"));
+    const signedIn = applyClockIn(buildState(), "staff-a", "shift-a", new Date("2026-08-27T17:02:41.250Z"));
     expect(signedIn.punches).toHaveLength(1);
-    expect(signedIn.punches[0].startAt).toBe("2026-08-27T17:00:00.000Z");
+    expect(signedIn.punches[0].startAt).toBe("2026-08-27T17:02:00.000Z");
 
-    const signedOut = applyClockOut(signedIn, "staff-a", new Date("2026-08-27T21:03:00.000Z"));
-    expect(signedOut.punches[0].endAt).toBe("2026-08-27T21:00:00.000Z");
+    const signedOut = applyClockOut(signedIn, "staff-a", new Date("2026-08-27T21:03:59.750Z"));
+    expect(signedOut.punches[0].endAt).toBe("2026-08-27T21:03:00.000Z");
   });
 
   it("allows manager-approved emergency help sign in without a scheduled shift", () => {
@@ -74,7 +75,7 @@ describe("model helpers", () => {
       staffId: "staff-c",
       shiftId: "",
       scheduledStaffId: "staff-c",
-      startAt: "2026-08-27T19:00:00.000Z",
+      startAt: "2026-08-27T19:02:00.000Z",
       endAt: null,
     });
   });
@@ -99,6 +100,33 @@ describe("model helpers", () => {
     const payroll = payrollRows(edited.state, "2026-08-27", "2026-08-27", "staff-a");
     expect(payroll[0].hours).toBe(6);
     expect(payroll[0].pay).toBe(120);
+  });
+
+  it("starts ordinary early arrivals at the scheduled shift time for payroll", () => {
+    const state = buildState();
+    state.punches.push({
+      id: "early",
+      staffId: "staff-a",
+      shiftId: "shift-a",
+      scheduledStaffId: "staff-a",
+      startAt: "2026-08-27T16:50:00.000Z",
+      endAt: "2026-08-27T23:05:00.000Z",
+    });
+    expect(paidMinutes(state, state.punches[0])).toBe(365);
+  });
+
+  it("counts an approved early arrival from its actual punch time", () => {
+    const state = buildState();
+    state.punches.push({
+      id: "approved-early",
+      staffId: "staff-a",
+      shiftId: "shift-a",
+      scheduledStaffId: "staff-a",
+      startAt: "2026-08-27T16:50:00.000Z",
+      endAt: "2026-08-27T23:05:00.000Z",
+      payrollFromActualStart: true,
+    });
+    expect(paidMinutes(state, state.punches[0])).toBe(375);
   });
 
   it("shows active punches first in manager lists", () => {
