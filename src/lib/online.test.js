@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchManagerSnapshot, inviteOnlineStaff, saveOnlineStaff } from "./online.js";
+import {
+  fetchManagerSnapshot,
+  acceptOnlineShiftSwap,
+  cancelOnlineShiftSwap,
+  inviteOnlineStaff,
+  saveOnlineShiftRequest,
+  saveOnlineShiftSwap,
+  saveOnlineStaff,
+  updateOnlineShiftRequest,
+  withdrawOnlineShiftRequest,
+} from "./online.js";
 
 function queryResult(data, error = null) {
   const query = {
@@ -62,6 +72,65 @@ describe("online manager data", () => {
     })).rejects.toMatchObject({ code: "23505" });
     expect(client.from).toHaveBeenCalledWith("staff");
     expect(deleteQuery.eq).toHaveBeenCalledWith("id", "staff-new");
+  });
+
+  it("creates, withdraws, and updates a shift request", async () => {
+    const calls = [];
+    const client = {
+      from: vi.fn(() => ({
+        insert: vi.fn((payload) => {
+          calls.push({ type: "insert", payload });
+          return Promise.resolve({ error: null });
+        }),
+        update: vi.fn((payload) => {
+          calls.push({ type: "update", payload });
+          return { eq: vi.fn((field, value) => {
+            calls.push({ type: "eq", field, value });
+            return Promise.resolve({ error: null });
+          }) };
+        }),
+      })),
+    };
+
+    await saveOnlineShiftRequest(client, { date: "2026-09-18", start: "600", end: "960", note: "イベント" }, "staff-a");
+    await withdrawOnlineShiftRequest(client, "request-a");
+    await updateOnlineShiftRequest(client, "request-a", "approved");
+
+    expect(calls).toEqual([
+      { type: "insert", payload: {
+        staff_id: "staff-a",
+        work_date: "2026-09-18",
+        requested_start: 600,
+        requested_end: 960,
+        note: "イベント",
+        status: "submitted",
+        manager_note: "",
+      } },
+      { type: "update", payload: { status: "withdrawn" } },
+      { type: "eq", field: "id", value: "request-a" },
+      { type: "update", payload: { status: "approved", manager_note: "" } },
+      { type: "eq", field: "id", value: "request-a" },
+    ]);
+  });
+
+  it("creates, cancels, and accepts a shift swap", async () => {
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+    const rpc = vi.fn().mockResolvedValue({ data: { id: "swap-a" }, error: null });
+    const client = { from: vi.fn(() => ({ insert, update })), rpc };
+
+    await saveOnlineShiftSwap(client, "shift-a", "staff-a", "よろしくお願いします");
+    await cancelOnlineShiftSwap(client, "swap-a");
+    await acceptOnlineShiftSwap(client, "swap-a");
+
+    expect(insert).toHaveBeenCalledWith({
+      shift_id: "shift-a",
+      from_staff_id: "staff-a",
+      status: "open",
+      note: "よろしくお願いします",
+    });
+    expect(update).toHaveBeenCalledWith({ status: "cancelled" });
+    expect(rpc).toHaveBeenCalledWith("accept_shift_swap", { p_swap_id: "swap-a" });
   });
 
   it("loads and maps staff and one week's shifts", async () => {
