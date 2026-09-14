@@ -213,6 +213,13 @@ export default function App() {
       setOnlineRole("");
       return "";
     }
+    if (!data) {
+      // A new staff account is linked immediately after login by claim_staff_profile.
+      // Keep the session alive until that claim has had a chance to run.
+      setOnlineRole("");
+      setOnlineStaffId("");
+      return "";
+    }
     const role = data?.active ? data.role : "";
     setOnlineRole(role);
     setOnlineStaffId(data?.active ? data.staff_id || "" : "");
