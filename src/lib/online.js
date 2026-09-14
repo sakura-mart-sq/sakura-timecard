@@ -18,6 +18,7 @@ function toStaff(row, code = "") {
     name: row.name,
     wage: Number(row.hourly_wage),
     active: row.active,
+    email: row.email || "",
     code,
   };
 }
@@ -69,7 +70,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
   const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult, swapResult] = await Promise.all([
-    client.from("staff").select("id, name, hourly_wage, active").order("name"),
+    client.from("staff").select("id, name, hourly_wage, active, email").order("name"),
     client.from("staff_codes").select("staff_id, code"),
     client
       .from("shifts")
@@ -212,6 +213,7 @@ export async function saveOnlineStaff(client, form) {
     hourly_wage: Number(form.wage),
     active: form.active !== false,
   };
+  if (form.email?.trim()) payload.email = form.email.trim().toLowerCase();
   if (form.code) payload.staff_code_hash = await hashStaffCode(form.code.trim());
   let staffId = form.id;
   if (form.id) {
@@ -231,15 +233,6 @@ export async function saveOnlineStaff(client, form) {
     }
   }
   return staffId;
-}
-
-export async function inviteOnlineStaff(client, { staffId, email }) {
-  const { data, error } = await client.functions.invoke("invite-staff", {
-    body: { staffId, email: email.trim() },
-  });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data;
 }
 
 export async function saveOnlineShift(client, form) {

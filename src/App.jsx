@@ -38,7 +38,6 @@ import {
   fetchManagerSnapshot,
   fetchStaffSnapshot,
   acceptOnlineShiftSwap,
-  inviteOnlineStaff,
   onlinePayrollRows,
   onlinePunchRows,
   saveOnlineShiftRequest,
@@ -140,6 +139,7 @@ export default function App() {
   const [onlineStaffId, setOnlineStaffId] = useState("");
   const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
   const [onlineAuthError, setOnlineAuthError] = useState("");
+  const [onlineAuthMode, setOnlineAuthMode] = useState("login");
   const [showOnlineLogin, setShowOnlineLogin] = useState(false);
   const [onlineSnapshot, setOnlineSnapshot] = useState(null);
   const [onlineDataLoading, setOnlineDataLoading] = useState(false);
@@ -237,9 +237,50 @@ export default function App() {
       setOnlineAuthError("メールアドレスまたはパスワードを確認してください。");
       return;
     }
-    const role = await loadOnlineRole(data.user?.id);
+    let role = await loadOnlineRole(data.user?.id);
+    if (!role) {
+      const { error: claimError } = await supabase.rpc("claim_staff_profile");
+      if (claimError) {
+        setOnlineAuthLoading(false);
+        setOnlineAuthError(claimError.message);
+        return;
+      }
+      role = await loadOnlineRole(data.user?.id);
+    }
     setOnlineAuthLoading(false);
     if (role !== "manager" && role !== "staff") return;
+    event.currentTarget.reset();
+  }
+
+  async function handleOnlineSignup(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "").trim().toLowerCase();
+    const password = String(form.get("password") || "");
+    setOnlineAuthLoading(true);
+    setOnlineAuthError("");
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError(error.message);
+      return;
+    }
+    if (!data.session) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError("確認メールを送信しました。メール内のリンクを開いてからログインしてください。");
+      event.currentTarget.reset();
+      return;
+    }
+    const { error: claimError } = await supabase.rpc("claim_staff_profile");
+    if (claimError) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError(claimError.message);
+      return;
+    }
+    await loadOnlineRole(data.user.id);
+    setOnlineAuthLoading(false);
+    setShowOnlineLogin(false);
     event.currentTarget.reset();
   }
 
@@ -258,7 +299,7 @@ export default function App() {
       name: person.name,
       wage: person.wage.toFixed(2),
       code: "",
-      email: "",
+      email: person.email || "",
       active: person.active,
     } : emptyOnlineStaffForm());
     setShowOnlineStaffDialog(true);
@@ -306,10 +347,7 @@ export default function App() {
       return;
     }
     try {
-      const staffId = await saveOnlineStaff(supabase, onlineStaffForm);
-      if (onlineStaffForm.email.trim()) {
-        await inviteOnlineStaff(supabase, { staffId, email: onlineStaffForm.email });
-      }
+      await saveOnlineStaff(supabase, onlineStaffForm);
       setShowOnlineStaffDialog(false);
       await refreshOnlineData();
     } catch (error) {
@@ -1054,9 +1092,9 @@ export default function App() {
 
       {showOnlineLogin ? (
         <Dialog onClose={() => setShowOnlineLogin(false)} title="オンラインログイン">
-          <form className="dialog-panel" onSubmit={handleOnlineLogin}>
-            <h2>オンラインログイン</h2>
-            <p className="note">Supabaseに登録したアカウントでログインします。</p>
+          <form className="dialog-panel" onSubmit={onlineAuthMode === "signup" ? handleOnlineSignup : handleOnlineLogin}>
+            <h2>{onlineAuthMode === "signup" ? "スタッフアカウント作成" : "オンラインログイン"}</h2>
+            <p className="note">{onlineAuthMode === "signup" ? "管理者に登録されたメールアドレスを入力してください。" : "登録済みのメールアドレスでログインします。"}</p>
             <label className="field">
               <span>メールアドレス</span>
               <input name="email" type="email" autoComplete="username" required />
@@ -1068,7 +1106,10 @@ export default function App() {
             <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">キャンセル</button>
-              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "確認中..." : "ログイン"}</button>
+              <button className="ghost" onClick={() => { setOnlineAuthMode(onlineAuthMode === "signup" ? "login" : "signup"); setOnlineAuthError(""); }} type="button">
+                {onlineAuthMode === "signup" ? "ログインへ" : "初回アカウント作成"}
+              </button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "処理中..." : onlineAuthMode === "signup" ? "アカウント作成" : "ログイン"}</button>
             </div>
           </form>
         </Dialog>
@@ -1081,7 +1122,7 @@ export default function App() {
             <label className="field"><span>名前</span><input required value={onlineStaffForm.name} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, name: event.target.value }))} /></label>
             <label className="field"><span>時給</span><input min="0" required step="0.01" type="number" value={onlineStaffForm.wage} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, wage: event.target.value }))} /></label>
             <label className="field"><span>{onlineStaffForm.id ? "新しいスタッフコード（変更時のみ）" : "スタッフコード"}</span><input inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required={!onlineStaffForm.id} value={onlineStaffForm.code} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, code: event.target.value }))} /></label>
-            <label className="field"><span>ログイン用メールアドレス{onlineStaffForm.id ? "（入力すると招待・紐付け）" : ""}</span><input autoComplete="email" required={!onlineStaffForm.id} type="email" value={onlineStaffForm.email} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label className="field"><span>スタッフ用メールアドレス{onlineStaffForm.id ? "（本人のアカウント作成に使用）" : ""}</span><input autoComplete="email" required={!onlineStaffForm.id} type="email" value={onlineStaffForm.email} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, email: event.target.value }))} /></label>
             <label className="checkbox-field"><input checked={onlineStaffForm.active} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, active: event.target.checked }))} type="checkbox" /><span>有効</span></label>
             <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
           </form>

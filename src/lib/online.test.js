@@ -3,7 +3,6 @@ import {
   fetchManagerSnapshot,
   acceptOnlineShiftSwap,
   cancelOnlineShiftSwap,
-  inviteOnlineStaff,
   saveOnlineShiftRequest,
   saveOnlineShiftSwap,
   saveOnlineStaff,
@@ -25,29 +24,6 @@ function queryResult(data, error = null) {
 }
 
 describe("online manager data", () => {
-  it("invokes the server-side staff invitation function", async () => {
-    const invoke = vi.fn().mockResolvedValue({
-      data: { ok: true, invited: true, staffId: "staff-a" },
-      error: null,
-    });
-
-    const result = await inviteOnlineStaff({ functions: { invoke } }, {
-      staffId: "staff-a",
-      email: "  staff@example.com ",
-    });
-
-    expect(invoke).toHaveBeenCalledWith("invite-staff", {
-      body: { staffId: "staff-a", email: "staff@example.com" },
-    });
-    expect(result).toMatchObject({ ok: true, invited: true });
-  });
-
-  it("surfaces invitation function errors", async () => {
-    await expect(inviteOnlineStaff({
-      functions: { invoke: vi.fn().mockResolvedValue({ data: null, error: new Error("network") }) },
-    }, { staffId: "staff-a", email: "staff@example.com" })).rejects.toThrow("network");
-  });
-
   it("removes a newly inserted staff when its code cannot be saved", async () => {
     const deleteQuery = { eq: vi.fn(() => Promise.resolve({ error: null })) };
     const insertedQuery = {

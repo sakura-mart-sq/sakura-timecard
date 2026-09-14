@@ -1,6 +1,6 @@
 # 開発引き継ぎメモ
 
-最終更新: 2026-09-11
+最終更新: 2026-09-14
 
 ## 現在の状態
 
@@ -9,7 +9,7 @@
 現在のブランチ:
 
 ```text
-feature/shift-request-portal
+main
 ```
 
 最新コミット:
@@ -49,7 +49,8 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 - Supabase Authログイン
 - 管理者プロフィールによる権限確認
 - Supabase上のスタッフ追加・編集
-- 管理画面からのスタッフAuth招待・自動紐付け（Edge Function実装済み）
+- 管理者によるスタッフ情報とログイン用メールアドレスの登録
+- スタッフ本人による初回Authアカウント作成とメールアドレス自動紐付け
 - スタッフのシフト希望提出・取り下げ、管理者の承認・却下
 - 5桁スタッフコードの管理者向け表示・変更
 - 週次シフトの表示、追加、編集
@@ -75,7 +76,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 
 優先順位順です。
 
-1. シフト交代申請、メール通知、先着1名の自動確定
+1. シフト交代申請のメール通知、先着1名の自動確定
 2. 店舗タブレットのSupabase接続
 3. 登録端末の検証、オフライン・通信エラー対応
 4. localStorageからSupabaseへの本番データ移行
@@ -86,7 +87,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 
 次は、スタッフが公開済みシフトの交代を申請し、他スタッフが受諾できる機能を実装します。先着1名の確定処理は既存の`accept_shift_swap` RPCを利用し、メール通知はEdge Functionで追加します。
 
-スタッフAuth招待の実装ファイルは`supabase/functions/invite-staff/index.ts`です。テスト用Functionはデプロイ済みで、本番用Functionのデプロイと招待メール確認が残っています。シフト交代のRLSとRPC更新は`supabase/migrations/202609120001_shift_swap_access.sql`です。
+スタッフAuth招待のEdge Functionは現在の画面から呼び出していません。スタッフ登録は、管理者がメールアドレスを保存し、スタッフ本人がログイン画面の「初回アカウント作成」を使う方式です。シフト交代のRLSとRPC更新は`supabase/migrations/202609120001_shift_swap_access.sql`です。
 
 ## Supabaseマイグレーション
 
@@ -99,11 +100,14 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 202609110004_remove_closed_shift_status.sql
 202609110005_staff_codes.sql
 202609120001_shift_swap_access.sql
+202609140001_self_service_staff_registration.sql
 ```
 
-既存の本番・テストプロジェクトでは、追加ファイルを実行済みかSupabase Dashboardで確認します。特に`003`から`005`は既存プロジェクト作成後に追加されたため、未実行なら対象DBで実行してください。
+既存の本番・テストプロジェクトでは、追加ファイルを実行済みかSupabase Dashboardで確認します。特に`003`から`005`および`202609140001`は既存プロジェクト作成後に追加されたため、未実行なら対象DBで実行してください。
 
 ## Authユーザーの紐付け
+
+スタッフ本人が初回アカウント作成または初回ログインすると、`claim_staff_profile()`が登録済みメールアドレスを照合して自動紐付けします。手動SQLは通常不要です。
 
 ```sql
 insert into public.profiles (id, role, staff_id, active)
