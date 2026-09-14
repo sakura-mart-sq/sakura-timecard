@@ -260,7 +260,12 @@ export default function App() {
     const password = String(form.get("password") || "");
     setOnlineAuthLoading(true);
     setOnlineAuthError("");
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectUrl },
+    });
     if (error) {
       setOnlineAuthLoading(false);
       setOnlineAuthError(error.message);
