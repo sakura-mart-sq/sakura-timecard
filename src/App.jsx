@@ -182,7 +182,7 @@ export default function App() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
       setOnlineSession(session);
-      if (session?.user) await loadOnlineRole(session.user.id);
+      if (session?.user) await ensureOnlineRole(session.user.id);
       setOnlineAuthLoading(false);
     };
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -230,6 +230,19 @@ export default function App() {
     return role;
   }
 
+  async function ensureOnlineRole(userId) {
+    let role = await loadOnlineRole(userId);
+    if (!role) {
+      const { error: claimError } = await supabase.rpc("claim_staff_profile");
+      if (claimError) {
+        setOnlineAuthError(claimError.message);
+        return "";
+      }
+      role = await loadOnlineRole(userId);
+    }
+    return role;
+  }
+
   async function handleOnlineLogin(event) {
     event.preventDefault();
     if (!supabase) return;
@@ -244,16 +257,7 @@ export default function App() {
       setOnlineAuthError("メールアドレスまたはパスワードを確認してください。");
       return;
     }
-    let role = await loadOnlineRole(data.user?.id);
-    if (!role) {
-      const { error: claimError } = await supabase.rpc("claim_staff_profile");
-      if (claimError) {
-        setOnlineAuthLoading(false);
-        setOnlineAuthError(claimError.message);
-        return;
-      }
-      role = await loadOnlineRole(data.user?.id);
-    }
+    const role = await ensureOnlineRole(data.user?.id);
     setOnlineAuthLoading(false);
     if (role !== "manager" && role !== "staff") return;
     event.currentTarget.reset();
@@ -284,13 +288,7 @@ export default function App() {
       event.currentTarget.reset();
       return;
     }
-    const { error: claimError } = await supabase.rpc("claim_staff_profile");
-    if (claimError) {
-      setOnlineAuthLoading(false);
-      setOnlineAuthError(claimError.message);
-      return;
-    }
-    await loadOnlineRole(data.user.id);
+    await ensureOnlineRole(data.user.id);
     setOnlineAuthLoading(false);
     setShowOnlineLogin(false);
     event.currentTarget.reset();
