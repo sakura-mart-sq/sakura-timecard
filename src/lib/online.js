@@ -69,7 +69,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
-  const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult, swapResult] = await Promise.all([
+  const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult, swapResult, settingsResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active, email").order("name"),
     client.from("staff_codes").select("staff_id, code"),
     client
@@ -101,6 +101,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
       .from("shift_swaps")
       .select("id, shift_id, from_staff_id, accepted_by, status, note, created_at, shifts!inner(work_date, start_minute, end_minute)")
       .order("created_at", { ascending: false }),
+    client.from("app_settings").select("store_name, admin_passcode").eq("id", true),
   ]);
 
   if (staffResult.error) throw staffResult.error;
@@ -110,6 +111,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
   if (payrollResult.error) throw payrollResult.error;
   if (requestResult.error) throw requestResult.error;
   if (swapResult.error) throw swapResult.error;
+  if (settingsResult.error) throw settingsResult.error;
 
   return {
     staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
@@ -118,6 +120,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
     payrolls: payrollResult.data || [],
     shiftRequests: (requestResult.data || []).map(toShiftRequest),
     shiftSwaps: (swapResult.data || []).map(toShiftSwap),
+    settings: settingsResult.data?.[0] || null,
     weekStart,
     weekEnd,
     loadedAt: new Date(),
@@ -409,6 +412,15 @@ export async function saveOnlineStaff(client, form) {
     }
   }
   return staffId;
+}
+
+export async function saveOnlineSettings(client, settings) {
+  const { error } = await client.from("app_settings").upsert({
+    id: true,
+    store_name: settings.storeName.trim(),
+    admin_passcode: settings.adminPasscode.trim(),
+  });
+  if (error) throw error;
 }
 
 export async function saveOnlineShift(client, form) {

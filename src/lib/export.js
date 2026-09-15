@@ -69,6 +69,7 @@ export function exportPdf(state, startDate, endDate, staffId = "all") {
         <meta charset="utf-8">
         <title>Timecard ${startDate} to ${endDate}</title>
         <style>
+          @page { size: A4 portrait; margin: 14mm; }
           body { font-family: system-ui, sans-serif; color: #202124; margin: 24px; }
           h1 { font-size: 24px; margin: 0 0 4px; }
           h2 { font-size: 18px; margin: 24px 0 8px; }

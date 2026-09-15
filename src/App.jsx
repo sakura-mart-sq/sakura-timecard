@@ -48,6 +48,7 @@ import {
   saveOnlineShiftSwap,
   saveOnlinePunch,
   saveTerminalPunch,
+  saveOnlineSettings,
   saveOnlinePayroll,
   saveOnlineShift,
   saveOnlineStaff,
@@ -363,7 +364,7 @@ export default function App() {
       if (!window.confirm("Import this backup into Supabase? Existing records will not be deleted.")) return;
       const result = await importLegacyBackup(supabase, payload);
       await refreshOnlineData();
-      window.alert(`Imported ${result.staff} staff, ${result.shifts} shifts, and ${result.punches} punches.`);
+      window.alert(`Imported ${result.staff} staff, ${result.shifts} shifts, ${result.punches} punches, ${result.shiftRequests} requests, and ${result.shiftSwaps} swaps.`);
     } catch (error) {
       setOnlineDataError(error?.message || "Could not import the backup file.");
     } finally {
@@ -441,6 +442,42 @@ export default function App() {
       setOnlineDataError(error?.code === "23505"
         ? "そのスタッフコードはすでに使われています。別の5桁コードを入力してください。"
         : error?.message || "スタッフを保存できませんでした。");
+    }
+  }
+
+  async function handleDeleteOnlineStaff(person) {
+    if (!supabase) return;
+    const nextActive = !person.active;
+    const message = nextActive
+      ? `${person.name}を再び有効にしますか？`
+      : `${person.name}を削除しますか？既存のシフト・勤怠記録は残ります。`;
+    if (!window.confirm(message)) return;
+    try {
+      await saveOnlineStaff(supabase, { ...person, wage: person.wage, code: "", active: nextActive });
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ active: nextActive })
+        .eq("staff_id", person.id);
+      if (profileError) throw profileError;
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "スタッフを更新できませんでした。");
+    }
+  }
+
+  async function handleSaveOnlineSettings(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const storeName = String(form.get("storeName") || "").trim();
+    const adminPasscode = String(form.get("adminPasscode") || "").trim();
+    if (!storeName || !adminPasscode) return;
+    try {
+      await saveOnlineSettings(supabase, { storeName, adminPasscode });
+      setState((current) => ({ ...current, storeName }));
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "設定を保存できませんでした。");
     }
   }
 
@@ -617,18 +654,27 @@ export default function App() {
     exportSheet(onlinePayrollSource, payStart, payEnd, payStaff);
   }
 
+  function handleExportOnlinePayrollPdf() {
+    if (!onlinePayrollSource) return;
+    exportPdf(onlinePayrollSource, payStart, payEnd, payStaff);
+  }
+
   async function refreshOnlineData() {
     if (!supabase || (!onlineRole && !terminalMode)) return;
     setOnlineDataLoading(true);
     setOnlineDataError("");
     try {
-      setOnlineSnapshot(terminalMode
+      const nextSnapshot = terminalMode
         ? await fetchTerminalSnapshot(supabase)
         : onlineRole === "manager"
         ? await fetchManagerSnapshot(supabase, onlineWeekStart)
         : onlineRole === "terminal"
           ? await fetchTerminalSnapshot(supabase)
-          : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart));
+          : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart);
+      if (onlineRole === "manager" && nextSnapshot.settings?.store_name) {
+        setState((current) => ({ ...current, storeName: nextSnapshot.settings.store_name }));
+      }
+      setOnlineSnapshot(nextSnapshot);
     } catch (error) {
       setOnlineDataError(error?.message || "Could not load online data.");
     } finally {
@@ -933,11 +979,14 @@ export default function App() {
             onAddStaff={() => openOnlineStaffDialog()}
             onEditShift={openOnlineShiftDialog}
             onEditStaff={openOnlineStaffDialog}
+            onDeleteStaff={handleDeleteOnlineStaff}
             onAddPunch={() => openOnlinePunchDialog()}
             onEditPunch={openOnlinePunchDialog}
             onSavePayroll={handleSaveOnlinePayroll}
             onCalculatePayroll={handleCalculateOnlinePayroll}
             onExportPayroll={handleExportOnlinePayroll}
+            onExportPayrollPdf={handleExportOnlinePayrollPdf}
+            onSaveSettings={handleSaveOnlineSettings}
             payrollResult={onlinePayrollResult}
             onImportBackup={handleLegacyImport}
             onRefresh={refreshOnlineData}
@@ -1604,7 +1653,7 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onImportBackup, onUpdateRequest, payrollResult }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onUpdateRequest, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -1661,6 +1710,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <span>{person.wage.toFixed(2)} / 時間</span>
                 <span>コード {person.code || "未設定"}</span>
                 <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
+                <button className={person.active ? "compact-edit danger" : "compact-edit ghost"} onClick={() => onDeleteStaff(person)} type="button">{person.active ? "削除" : "有効化"}</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
             </> : null}
@@ -1721,6 +1771,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
               </select>
               <button type="submit">計算</button>
               <button className="secondary" onClick={onExportPayroll} type="button">保存</button>
+              <button className="secondary" onClick={onExportPayrollPdf} type="button">PDF</button>
             </form>
             <div className="online-payroll-table">
               {payrollResult.map((row) => (
@@ -1757,6 +1808,11 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
               <div className="online-actions">
                 <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
               </div>
+              <form className="passcode-form online-settings-form" onSubmit={onSaveSettings}>
+                <label className="field"><span>店舗名</span><input name="storeName" required defaultValue={data.settings?.store_name || "Sakura Mart"} /></label>
+                <label className="field"><span>管理者パスコード</span><input name="adminPasscode" required type="password" defaultValue={data.settings?.admin_passcode || "1968"} /></label>
+                <button type="submit">保存</button>
+              </form>
             </> : null}
           </div>
         </>
