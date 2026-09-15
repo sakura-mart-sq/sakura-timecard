@@ -103,6 +103,7 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 202609140001_self_service_staff_registration.sql
 202609150001_terminal_access.sql
 202609150002_public_terminal_rpc.sql
+202609150003_backup_settings.sql
 ```
 
 既存の本番・テストプロジェクトでは、追加ファイルを実行済みかSupabase Dashboardで確認します。特に`003`から`005`、`202609140001`、`202609150001`は既存プロジェクト作成後に追加されたため、未実行なら対象DBで実行してください。

@@ -280,7 +280,7 @@ export async function importLegacyBackup(client, payload) {
       staff_id: staffIdMap.get(shift.staffId),
       start_minute: Number(shift.start),
       end_minute: Number(shift.end),
-      note: shift.note || "",
+      note: shift.note || data.shiftNotes?.[shift.date] || "",
       status: shift.status === "draft" ? "draft" : "published",
     };
   }).filter((row) => row.staff_id);
@@ -298,7 +298,49 @@ export async function importLegacyBackup(client, payload) {
   })).filter((row) => row.staff_id && row.clock_in);
   result = await client.from("punches").upsert(punchRows);
   if (result.error) throw result.error;
-  return { staff: staffRows.length, shifts: shiftRows.length, punches: punchRows.length };
+
+  result = await client.from("app_settings").upsert({
+    id: true,
+    store_name: String(data.storeName || "Sakura Mart"),
+    admin_passcode: String(data.adminPasscode || "1968"),
+  });
+  if (result.error) throw result.error;
+
+  const requestRows = (data.shiftRequests || []).map((request) => ({
+    id: migrationId(request.id),
+    staff_id: staffIdMap.get(request.staffId || request.staff_id),
+    work_date: request.date || request.work_date,
+    requested_start: Number(request.start ?? request.requested_start),
+    requested_end: Number(request.end ?? request.requested_end),
+    note: request.note || "",
+    status: ["submitted", "approved", "rejected", "withdrawn"].includes(request.status) ? request.status : "submitted",
+    manager_note: request.managerNote || request.manager_note || "",
+  })).filter((row) => row.staff_id && row.work_date && row.requested_end > row.requested_start);
+  if (requestRows.length) {
+    result = await client.from("shift_requests").upsert(requestRows);
+    if (result.error) throw result.error;
+  }
+
+  const swapRows = (data.shiftSwaps || []).map((swap) => ({
+    id: migrationId(swap.id),
+    shift_id: shiftIdMap.get(swap.shiftId || swap.shift_id),
+    from_staff_id: staffIdMap.get(swap.fromStaffId || swap.from_staff_id),
+    accepted_by: staffIdMap.get(swap.acceptedBy || swap.accepted_by) || null,
+    status: ["open", "accepted", "expired", "cancelled"].includes(swap.status) ? swap.status : "open",
+    note: swap.note || "",
+    accepted_at: swap.acceptedAt || swap.accepted_at || null,
+  })).filter((row) => row.shift_id && row.from_staff_id);
+  if (swapRows.length) {
+    result = await client.from("shift_swaps").upsert(swapRows);
+    if (result.error) throw result.error;
+  }
+  return {
+    staff: staffRows.length,
+    shifts: shiftRows.length,
+    punches: punchRows.length,
+    shiftRequests: requestRows.length,
+    shiftSwaps: swapRows.length,
+  };
 }
 
 async function awaitHash(code) {
@@ -320,7 +362,7 @@ export function onlinePayrollRows(snapshot) {
       }
       return total + Math.max(0, (ended - paidStart) / 60000);
     }, 0);
-    return { person, minutes, hours: minutes / 60, pay: (minutes / 60) * person.wage };
+    return { person, minutes, hours: minutes / 60, pay: Number(((minutes / 60) * person.wage).toFixed(1)) };
   });
 }
 
@@ -457,7 +499,7 @@ export async function saveOnlinePayroll(client, row, periodStart, periodEnd, sta
     period_start: periodStart,
     period_end: periodEnd,
     total_minutes: Math.round(row.minutes),
-    total_pay: Number(row.pay.toFixed(2)),
+    total_pay: Number(row.pay.toFixed(1)),
     status,
     finalized_by: status === "finalized" || status === "published" ? userId : null,
     finalized_at: status === "finalized" || status === "published" ? new Date().toISOString() : null,

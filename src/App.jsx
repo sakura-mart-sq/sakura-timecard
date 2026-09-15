@@ -1088,7 +1088,7 @@ export default function App() {
                       <div className="title">{row.person.name}</div>
                       <div className="sub">{row.hours.toFixed(2)} 時間 x ${Number(row.person.wage).toFixed(2)}</div>
                     </div>
-                    <div className="amount">${row.pay.toFixed(2)}</div>
+                    <div className="amount">${row.pay.toFixed(1)}</div>
                   </div>
                 ))}
               </div>
@@ -1547,7 +1547,7 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
               <div className="online-staff-row" key={payroll.id}>
                 <span>{payroll.period_start} - {payroll.period_end}</span>
                 <span>{(payroll.total_minutes / 60).toFixed(2)} hours</span>
-                <strong>{Number(payroll.total_pay).toFixed(2)}</strong>
+                <strong>{Number(payroll.total_pay).toFixed(1)}</strong>
               </div>
             )) : <p className="empty">No published payroll.</p>}
           </div>
@@ -1727,7 +1727,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <div className="online-staff-row online-payroll-row" key={row.person.id}>
                   <span>{row.person.name}</span>
                   <span>{row.hours.toFixed(2)}時間</span>
-                  <strong>{row.pay.toFixed(2)}</strong>
+                  <strong>{row.pay.toFixed(1)}</strong>
                 </div>
               ))}
             </div>

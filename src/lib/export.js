@@ -28,7 +28,7 @@ export function exportSheet(state, startDate, endDate, staffId = "all") {
     row.end,
     row.hours.toFixed(2),
     row.wage.toFixed(2),
-    row.pay.toFixed(2),
+    row.pay.toFixed(1),
   ]);
   const payrollHeaders = ["Staff", "Staff Code", "Hours", "Hourly Wage", "Pay"];
   const payrollData = payrollRows(state, startDate, endDate, staffId).map((row) => [
@@ -36,7 +36,7 @@ export function exportSheet(state, startDate, endDate, staffId = "all") {
     row.person.code,
     row.hours.toFixed(2),
     Number(row.person.wage).toFixed(2),
-    row.pay.toFixed(2),
+    row.pay.toFixed(1),
   ]);
   const sections = [
     ["Timecard Records"],
@@ -94,7 +94,7 @@ export function exportPdf(state, startDate, endDate, staffId = "all") {
             row.end,
             row.hours.toFixed(2),
             `$${row.wage.toFixed(2)}`,
-            `$${row.pay.toFixed(2)}`,
+            `$${row.pay.toFixed(1)}`,
           ]),
         )}
         <h2>給与集計</h2>
@@ -105,7 +105,7 @@ export function exportPdf(state, startDate, endDate, staffId = "all") {
             row.person.code,
             row.hours.toFixed(2),
             `$${Number(row.person.wage).toFixed(2)}`,
-            `$${row.pay.toFixed(2)}`,
+            `$${row.pay.toFixed(1)}`,
           ]),
         )}
       </body>

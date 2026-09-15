@@ -467,7 +467,7 @@ export function payrollRows(state, startDate, endDate, staffId = "all") {
       });
       const minutes = punches.reduce((sum, punch) => sum + paidMinutes(state, punch), 0);
       const hours = minutes / 60;
-      return { person, hours, pay: hours * Number(person.wage) };
+      return { person, hours, pay: Number((hours * Number(person.wage)).toFixed(1)) };
     });
 }
 
@@ -496,7 +496,7 @@ export function punchRows(state, startDate, endDate, staffId = "all") {
         end: ended ? timeLabel(ended) : "",
         hours: minutes / 60,
         wage: Number(person?.wage || 0),
-        pay: (minutes / 60) * Number(person?.wage || 0),
+        pay: Number(((minutes / 60) * Number(person?.wage || 0)).toFixed(1)),
       };
     });
 }
