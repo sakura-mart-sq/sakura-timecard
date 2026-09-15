@@ -1723,15 +1723,26 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
               <div className="online-shift-graph-head"><span>日付</span><div><span>08:00</span><span>14:00</span><span>20:00</span></div></div>
               {dates.map((date) => {
                 const shifts = data.shifts.filter((shift) => shift.date === date).sort((a, b) => a.start - b.start);
+                const laneEnds = [];
+                const shiftsWithLanes = shifts.map((shift) => {
+                  let lane = laneEnds.findIndex((end) => end <= shift.start);
+                  if (lane < 0) {
+                    lane = laneEnds.length;
+                    laneEnds.push(shift.end);
+                  } else {
+                    laneEnds[lane] = shift.end;
+                  }
+                  return { shift, lane };
+                });
                 return <div className="online-shift-graph-row" key={date}>
                   <div className="online-shift-graph-date">{weekDayLabel(date, "ja")}</div>
-                  <div className="online-shift-graph-track">
-                    {shifts.length ? shifts.map((shift) => (
+                  <div className="online-shift-graph-track" style={{ minHeight: `${Math.max(1, laneEnds.length) * 46}px` }}>
+                    {shifts.length ? shiftsWithLanes.map(({ shift, lane }) => (
                       <button
                         className={`online-shift-bar ${shift.status === "draft" ? "draft" : ""}`}
                         key={shift.id}
                         onClick={() => onEditShift(shift)}
-                        style={timelineStyle(shift, timelineBounds)}
+                        style={{ ...timelineStyle(shift, timelineBounds), top: `${7 + lane * 39}px` }}
                         title={`${staffById.get(shift.staffId)?.name || "未登録"} ${displayShiftLabel(shift)}`}
                         type="button"
                       >
