@@ -111,7 +111,12 @@ export async function fetchManagerSnapshot(client, weekStart) {
   if (payrollResult.error) throw payrollResult.error;
   if (requestResult.error) throw requestResult.error;
   if (swapResult.error) throw swapResult.error;
-  if (settingsResult.error) throw settingsResult.error;
+  const settingsTableMissing = settingsResult.error && (
+    settingsResult.error.code === "42P01"
+    || settingsResult.error.code === "PGRST205"
+    || settingsResult.error.message?.includes("app_settings")
+  );
+  if (settingsResult.error && !settingsTableMissing) throw settingsResult.error;
 
   return {
     staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
@@ -120,7 +125,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
     payrolls: payrollResult.data || [],
     shiftRequests: (requestResult.data || []).map(toShiftRequest),
     shiftSwaps: (swapResult.data || []).map(toShiftSwap),
-    settings: settingsResult.data?.[0] || null,
+    settings: settingsTableMissing ? null : settingsResult.data?.[0] || null,
     weekStart,
     weekEnd,
     loadedAt: new Date(),
