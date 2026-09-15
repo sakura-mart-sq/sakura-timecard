@@ -36,6 +36,7 @@ import {
 import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
+  fetchManagerPayrollSnapshot,
   fetchStaffSnapshot,
   fetchTerminalSnapshot,
   findTerminalStaff,
@@ -168,6 +169,8 @@ export default function App() {
   const [showOnlineSwapDialog, setShowOnlineSwapDialog] = useState(false);
   const [onlinePunchForm, setOnlinePunchForm] = useState(null);
   const [showOnlinePunchDialog, setShowOnlinePunchDialog] = useState(false);
+  const [onlinePayrollResult, setOnlinePayrollResult] = useState([]);
+  const [onlinePayrollSource, setOnlinePayrollSource] = useState(null);
 
   useEffect(() => {
     saveState(state);
@@ -589,6 +592,31 @@ export default function App() {
     }
   }
 
+  async function handleCalculateOnlinePayroll(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const startDate = String(form.get("startDate") || "");
+    const endDate = String(form.get("endDate") || "");
+    const staffId = String(form.get("staffId") || "all");
+    if (!startDate || !endDate || endDate < startDate) return;
+    setPayStart(startDate);
+    setPayEnd(endDate);
+    setPayStaff(staffId);
+    try {
+      const snapshot = await fetchManagerPayrollSnapshot(supabase, startDate, endDate);
+      setOnlinePayrollSource(snapshot);
+      setOnlinePayrollResult(onlinePayrollRows(snapshot).filter((row) => staffId === "all" || row.person.id === staffId));
+    } catch (error) {
+      setOnlineDataError(error?.message || "給与を計算できませんでした。");
+    }
+  }
+
+  function handleExportOnlinePayroll() {
+    if (!onlinePayrollSource) return;
+    exportSheet(onlinePayrollSource, payStart, payEnd, payStaff);
+  }
+
   async function refreshOnlineData() {
     if (!supabase || (!onlineRole && !terminalMode)) return;
     setOnlineDataLoading(true);
@@ -908,6 +936,9 @@ export default function App() {
             onAddPunch={() => openOnlinePunchDialog()}
             onEditPunch={openOnlinePunchDialog}
             onSavePayroll={handleSaveOnlinePayroll}
+            onCalculatePayroll={handleCalculateOnlinePayroll}
+            onExportPayroll={handleExportOnlinePayroll}
+            payrollResult={onlinePayrollResult}
             onImportBackup={handleLegacyImport}
             onRefresh={refreshOnlineData}
             onRequest={openOnlineRequestDialog}
@@ -1573,7 +1604,7 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll, onImportBackup, onUpdateRequest }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onImportBackup, onUpdateRequest, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -1679,20 +1710,24 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
           </div>
           <div className="online-staff-list">
             {activeTab === "payroll" ? <>
-            <h3>給与計算（表示中の週）</h3>
+            <h3>給与計算</h3>
+            <form className="payroll-controls online-payroll-controls" onSubmit={onCalculatePayroll}>
+              <input name="startDate" required type="date" defaultValue={data.weekStart} />
+              <span>から</span>
+              <input name="endDate" required type="date" defaultValue={data.weekEnd} />
+              <select aria-label="給与計算の対象スタッフ" defaultValue="all" name="staffId">
+                <option value="all">全員まとめて</option>
+                {data.staff.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <button type="submit">計算</button>
+              <button className="secondary" onClick={onExportPayroll} type="button">保存</button>
+            </form>
             <div className="online-payroll-table">
-              {onlinePayrollRows(data).map((row) => (
+              {payrollResult.map((row) => (
                 <div className="online-staff-row online-payroll-row" key={row.person.id}>
                   <span>{row.person.name}</span>
                   <span>{row.hours.toFixed(2)}時間</span>
                   <strong>{row.pay.toFixed(2)}</strong>
-                  {(() => {
-                    const saved = data.payrolls.find((payroll) => payroll.staff_id === row.person.id);
-                    const status = saved?.status || "未保存";
-                    const nextStatus = status === "未保存" ? "calculated" : status === "calculated" ? "finalized" : status === "finalized" ? "published" : "published";
-                    const label = status === "未保存" ? "保存" : status === "calculated" ? "確定" : status === "finalized" ? "公開" : "公開済み";
-                    return <button className="compact-edit ghost" disabled={status === "published"} onClick={() => onSavePayroll(row, nextStatus)} type="button">{label}</button>;
-                  })()}
                 </div>
               ))}
             </div>

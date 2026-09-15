@@ -124,6 +124,32 @@ export async function fetchManagerSnapshot(client, weekStart) {
   };
 }
 
+export async function fetchManagerPayrollSnapshot(client, startDate, endDate) {
+  const start = dateTimeFromFields(startDate, "00:00").toISOString();
+  const end = dateTimeFromFields(addDays(endDate, 1), "00:00").toISOString();
+  const [staffResult, codeResult, shiftResult, punchResult] = await Promise.all([
+    client.from("staff").select("id, name, hourly_wage, active, email").order("name"),
+    client.from("staff_codes").select("staff_id, code"),
+    client.from("shifts").select("id, work_date, staff_id, start_minute, end_minute, note, status").gte("work_date", startDate).lte("work_date", endDate),
+    client.from("punches").select("id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start").gte("clock_in", start).lt("clock_in", end).order("clock_in"),
+  ]);
+  if (staffResult.error) throw staffResult.error;
+  if (codeResult.error) throw codeResult.error;
+  if (shiftResult.error) throw shiftResult.error;
+  if (punchResult.error) throw punchResult.error;
+  return {
+    staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
+    shifts: (shiftResult.data || []).map(toShift),
+    punches: (punchResult.data || []).map(toPunch),
+    payrolls: [],
+    shiftRequests: [],
+    shiftSwaps: [],
+    weekStart: startDate,
+    weekEnd: endDate,
+    loadedAt: new Date(),
+  };
+}
+
 export async function fetchStaffSnapshot(client, staffId, weekStart) {
   const weekEnd = addDays(weekStart, 6);
   const [shiftResult, payrollResult, requestResult, swapResult] = await Promise.all([
