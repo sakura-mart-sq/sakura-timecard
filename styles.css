@@ -302,14 +302,15 @@ h2 {
 
 .online-shift-bar {
   position: absolute;
-  top: 12px;
+  top: 5px;
   min-width: 78px;
-  height: 32px;
+  min-height: 24px;
+  height: 24px;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 5px;
   overflow: hidden;
   padding: 3px 7px;
   border: 1px solid #147cad;

@@ -362,7 +362,7 @@ export default function App() {
     if (!file || !supabase) return;
     try {
       const payload = JSON.parse(await file.text());
-      if (!window.confirm("Import this backup into Supabase? Existing records will not be deleted.")) return;
+      if (!window.confirm("バックアップの内容で現在の業務データを置き換えます。現在のスタッフ、シフト、打刻、給与、申請、設定は削除されます。続行する前に現在のデータを別途バックアップしましたか？")) return;
       const result = await importLegacyBackup(supabase, payload);
       await refreshOnlineData();
       window.alert(`Imported ${result.staff} staff, ${result.shifts} shifts, ${result.punches} punches, ${result.shiftRequests} requests, and ${result.shiftSwaps} swaps.`);
@@ -1736,13 +1736,13 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 });
                 return <div className="online-shift-graph-row" key={date}>
                   <div className="online-shift-graph-date">{weekDayLabel(date, "ja")}</div>
-                  <div className="online-shift-graph-track" style={{ minHeight: `${Math.max(1, laneEnds.length) * 46}px` }}>
+                  <div className="online-shift-graph-track" style={{ minHeight: `${Math.max(1, laneEnds.length) * 35}px` }}>
                     {shifts.length ? shiftsWithLanes.map(({ shift, lane }) => (
                       <button
                         className={`online-shift-bar ${shift.status === "draft" ? "draft" : ""}`}
                         key={shift.id}
                         onClick={() => onEditShift(shift)}
-                        style={{ ...timelineStyle(shift, timelineBounds), top: `${7 + lane * 39}px` }}
+                        style={{ ...timelineStyle(shift, timelineBounds), top: `${5 + lane * 30}px` }}
                         title={`${staffById.get(shift.staffId)?.name || "未登録"} ${displayShiftLabel(shift)}`}
                         type="button"
                       >
@@ -1845,6 +1845,11 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
             <div className="online-manager-heading">
               <h3>勤務実績</h3>
               <button className="ghost" onClick={onAddPunch} type="button">追加</button>
+            </div>
+            <div className="online-week-controls">
+              <button aria-label="勤務状況の前の週" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+              <strong>{weekDayLabel(data.weekStart, "ja")} - {weekDayLabel(data.weekEnd, "ja")}</strong>
+              <button aria-label="勤務状況の次の週" className="ghost" onClick={onNextWeek} type="button">›</button>
             </div>
             <div className="online-table-wrap">
               <table className="online-table">

@@ -248,10 +248,23 @@ function migrationId(value) {
   return validUuid(value) ? value : crypto.randomUUID();
 }
 
+async function deleteAllOnlineRows(client, table) {
+  const query = client.from(table).delete();
+  const filteredQuery = table === "app_settings"
+    ? query.eq("id", true)
+    : query.not("id", "is", null);
+  const { error } = await filteredQuery;
+  if (error) throw error;
+}
+
 export async function importLegacyBackup(client, payload) {
   const data = payload?.data || payload;
   if (!Array.isArray(data?.staff) || !Array.isArray(data?.shifts) || !Array.isArray(data?.punches)) {
     throw new Error("Invalid timecard backup file.");
+  }
+
+  for (const table of ["shift_swaps", "shift_requests", "punches", "payrolls", "shifts", "staff_codes", "staff", "app_settings"]) {
+    await deleteAllOnlineRows(client, table);
   }
 
   const staffIdMap = new Map();
