@@ -990,6 +990,7 @@ export default function App() {
             onExportPayroll={handleExportOnlinePayroll}
             onExportPayrollPdf={handleExportOnlinePayrollPdf}
             onSaveSettings={handleSaveOnlineSettings}
+            onUpdateRequest={handleUpdateOnlineRequest}
             showAllSwaps={onlineShowAllSwaps}
             onToggleAllSwaps={() => setOnlineShowAllSwaps((current) => !current)}
             payrollResult={onlinePayrollResult}
