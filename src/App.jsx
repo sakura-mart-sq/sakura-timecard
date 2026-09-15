@@ -515,7 +515,7 @@ export default function App() {
       note: String(form.get("note") || ""),
     };
     if (!values.date || timeToMinutes(values.end) <= timeToMinutes(values.start)) {
-      setOnlineDataError("希望日と正しい勤務時間を指定してください。");
+      setOnlineDataError(onlineRole === "staff" ? "Enter a valid date and working hours." : "希望日と正しい勤務時間を指定してください。");
       return;
     }
     try {
@@ -929,6 +929,7 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
+  const onlineStaffEnglish = onlineRole === "staff";
   const onlinePortalActive = terminalMode || (onlineSession && (onlineRole === "manager" || onlineRole === "staff" || onlineRole === "terminal"));
   const localPunchVisible = legacyLocalMode || (!supabaseConfigured && !terminalMode);
   const staffVisible = view === "staff" && !onlinePortalActive && localPunchVisible;
@@ -1339,26 +1340,26 @@ export default function App() {
       ) : null}
 
       {showOnlineRequestDialog ? (
-        <Dialog onClose={() => setShowOnlineRequestDialog(false)} title="シフト希望">
+        <Dialog onClose={() => setShowOnlineRequestDialog(false)} title={onlineStaffEnglish ? "Shift Request" : "シフト希望"}>
           <form className="dialog-panel" onSubmit={handleSaveOnlineRequest}>
-            <h2>シフト希望を提出</h2>
-            <p className="note">提出した希望は管理者が確認します。</p>
-            <label className="field"><span>希望日</span><input name="date" required type="date" value={onlineRequestForm.date} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, date: event.target.value }))} /></label>
-            <label className="field"><span>開始</span><TimeSelect name="start" stepMinutes={15} value={onlineRequestForm.start} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, start: value }))} /></label>
-            <label className="field"><span>終了</span><TimeSelect name="end" stepMinutes={15} value={onlineRequestForm.end} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, end: value }))} /></label>
-            <label className="field"><span>備考</span><input name="note" value={onlineRequestForm.note} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, note: event.target.value }))} /></label>
-            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineRequestDialog(false)} type="button">キャンセル</button><button type="submit">提出</button></div>
+            <h2>{onlineStaffEnglish ? "Submit a Shift Request" : "シフト希望を提出"}</h2>
+            <p className="note">{onlineStaffEnglish ? "Your request will be reviewed by the manager." : "提出した希望は管理者が確認します。"}</p>
+            <label className="field"><span>{onlineStaffEnglish ? "Date" : "希望日"}</span><input name="date" required type="date" value={onlineRequestForm.date} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, date: event.target.value }))} /></label>
+            <label className="field"><span>{onlineStaffEnglish ? "Start" : "開始"}</span><TimeSelect name="start" stepMinutes={15} value={onlineRequestForm.start} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, start: value }))} /></label>
+            <label className="field"><span>{onlineStaffEnglish ? "End" : "終了"}</span><TimeSelect name="end" stepMinutes={15} value={onlineRequestForm.end} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, end: value }))} /></label>
+            <label className="field"><span>{onlineStaffEnglish ? "Note" : "備考"}</span><input name="note" value={onlineRequestForm.note} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineRequestDialog(false)} type="button">{onlineStaffEnglish ? "Cancel" : "キャンセル"}</button><button type="submit">{onlineStaffEnglish ? "Submit" : "提出"}</button></div>
           </form>
         </Dialog>
       ) : null}
 
       {showOnlineSwapDialog ? (
-        <Dialog onClose={() => setShowOnlineSwapDialog(false)} title="シフト交代">
+        <Dialog onClose={() => setShowOnlineSwapDialog(false)} title={onlineStaffEnglish ? "Shift Swap" : "シフト交代"}>
           <form className="dialog-panel" onSubmit={handleSaveOnlineSwap}>
-            <h2>シフト交代を申請</h2>
-            <p className="note">このシフトを他のスタッフへ交代募集します。</p>
-            <label className="field"><span>メモ</span><input value={onlineSwapForm.note} onChange={(event) => setOnlineSwapForm((current) => ({ ...current, note: event.target.value }))} /></label>
-            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineSwapDialog(false)} type="button">キャンセル</button><button type="submit">交代を申請</button></div>
+            <h2>{onlineStaffEnglish ? "Request a Shift Swap" : "シフト交代を申請"}</h2>
+            <p className="note">{onlineStaffEnglish ? "Other staff members can volunteer to cover this shift." : "このシフトを他のスタッフへ交代募集します。"}</p>
+            <label className="field"><span>{onlineStaffEnglish ? "Note" : "メモ"}</span><input value={onlineSwapForm.note} onChange={(event) => setOnlineSwapForm((current) => ({ ...current, note: event.target.value }))} /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineSwapDialog(false)} type="button">{onlineStaffEnglish ? "Cancel" : "キャンセル"}</button><button type="submit">{onlineStaffEnglish ? "Submit Request" : "交代を申請"}</button></div>
           </form>
         </Dialog>
       ) : null}
