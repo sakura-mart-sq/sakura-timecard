@@ -962,6 +962,7 @@ export default function App() {
                 <span>{supabaseMode === "test" ? "TEST / Online portal" : "Online portal"}</span>
                 <button onClick={() => {
                   setOnlineAuthError("");
+                  setOnlineAuthMode("login");
                   setShowOnlineLogin(true);
                 }} type="button">Log in</button>
               </>
@@ -1286,9 +1287,9 @@ export default function App() {
       ) : null}
 
       {showOnlineLogin ? (
-        <Dialog onClose={() => setShowOnlineLogin(false)} title="Log in">
+        <Dialog onClose={() => setShowOnlineLogin(false)} title={onlineAuthMode === "signup" ? "Sign Up" : "Log in"}>
           <form className="dialog-panel" onSubmit={onlineAuthMode === "signup" ? handleOnlineSignup : handleOnlineLogin}>
-            <h2>Log in</h2>
+            <h2>{onlineAuthMode === "signup" ? "Sign Up" : "Log in"}</h2>
             <p className="note">{onlineAuthMode === "signup" ? "Use the email address registered by your manager." : "Use your registered email address and password."}</p>
             <label className="field">
               <span>Email</span>
@@ -1301,7 +1302,7 @@ export default function App() {
             <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">Cancel</button>
-              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : "Log in"}</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : onlineAuthMode === "signup" ? "Sign Up" : "Log in"}</button>
             </div>
             <div className="auth-signup-link">
               <button className="text-link" onClick={() => { setOnlineAuthMode(onlineAuthMode === "signup" ? "login" : "signup"); setOnlineAuthError(""); }} type="button">{onlineAuthMode === "signup" ? "Back to Log in" : "Sign Up"}</button>
