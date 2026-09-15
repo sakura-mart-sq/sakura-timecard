@@ -188,8 +188,7 @@ export async function fetchStaffSnapshot(client, staffId, weekStart) {
       .from("shift_requests")
       .select("id, staff_id, work_date, requested_start, requested_end, note, status, manager_note, created_at")
       .eq("staff_id", staffId)
-      .gte("work_date", weekStart)
-      .lte("work_date", weekEnd)
+      .gte("work_date", mondayOf(dateKey(new Date())))
       .order("work_date")
       .order("created_at", { ascending: false }),
     client
