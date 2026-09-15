@@ -1653,7 +1653,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
           </> : null}
           <div className="online-staff-list">
             {activeTab === "staff" ? <>
-            <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button><label className="import-button">旧バックアップ移行<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label></div>
+            <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button><label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label></div>
             {data.staff.length ? data.staff.map((person) => (
               <div className="online-staff-row" key={person.id}>
                 <span>{person.name}</span>
