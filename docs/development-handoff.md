@@ -102,21 +102,16 @@ https://sakura-mart-sq.github.io/sakura-timecard/?mode=test
 202609120001_shift_swap_access.sql
 202609140001_self_service_staff_registration.sql
 202609150001_terminal_access.sql
+202609150002_public_terminal_rpc.sql
 ```
 
 既存の本番・テストプロジェクトでは、追加ファイルを実行済みかSupabase Dashboardで確認します。特に`003`から`005`、`202609140001`、`202609150001`は既存プロジェクト作成後に追加されたため、未実行なら対象DBで実行してください。
 
 ## 店舗端末のオンライン化
 
-`202609150001_terminal_access.sql`実行後、Supabase Authで端末用ユーザーを1つ作成し、SQL Editorで`profiles`に次のように登録します。
+店舗端末はSupabase Authを使いません。`202609150002_public_terminal_rpc.sql`を実行後、オンライン版PWAのURLに`?terminal=1`を付けて店舗端末で開きます（テストDBの場合は`?mode=test&terminal=1`）。端末ではスタッフコードだけを入力し、SupabaseのRPC経由で本日の公開シフトと打刻を取得・保存します。端末用Authユーザー、`profiles.role = 'terminal'`の登録は不要です。
 
-```sql
-insert into public.profiles (id, role, active)
-values ('端末AuthユーザーのUser UID', 'terminal', true)
-on conflict (id) do update set role = 'terminal', active = true;
-```
-
-オンライン版PWAで端末用ユーザーとしてログインすると、Staff画面はSupabaseの`staff_codes`、本日の公開シフト、`punches`を参照します。既存の個人GitHub Pages版PWAはlocalStorage版のままです。
+通常URLはスタッフ／管理者のログイン画面です。既存の個人GitHub Pages版PWAはlocalStorage版のままです。
 
 管理者のオンライン画面には「旧バックアップ移行」が追加されています。旧システムのJSONバックアップを選択すると、スタッフ、スタッフコード、シフト、打刻をSupabaseへ取り込みます。既存レコードは削除しないため、初回は空のテストDBで件数を確認してから本番DBで実行してください。
 

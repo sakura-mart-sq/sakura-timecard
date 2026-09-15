@@ -172,25 +172,31 @@ export async function fetchStaffSnapshot(client, staffId, weekStart) {
 }
 
 export async function fetchTerminalSnapshot(client, date = dateKey(new Date())) {
-  const start = dateTimeFromFields(date, "00:00").toISOString();
-  const end = dateTimeFromFields(addDays(date, 1), "00:00").toISOString();
-  const [staffResult, codeResult, shiftResult, punchResult] = await Promise.all([
-    client.from("staff").select("id, name, hourly_wage, active, email").eq("active", true).order("name"),
-    client.from("staff_codes").select("staff_id, code"),
-    client.from("shifts").select("id, work_date, staff_id, start_minute, end_minute, note, status").eq("work_date", date).eq("status", "published").order("start_minute"),
-    client.from("punches").select("id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start").gte("clock_in", start).lt("clock_in", end).order("clock_in"),
-  ]);
-  if (staffResult.error) throw staffResult.error;
-  if (codeResult.error) throw codeResult.error;
-  if (shiftResult.error) throw shiftResult.error;
-  if (punchResult.error) throw punchResult.error;
+  const { data, error } = await client.rpc("terminal_snapshot", { p_work_date: date });
+  if (error) throw error;
   return {
-    staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
-    shifts: (shiftResult.data || []).map(toShift),
-    punches: (punchResult.data || []).map(toPunch),
+    staff: (data?.staff || []).map((row) => toStaff(row)),
+    shifts: (data?.shifts || []).map(toShift),
+    punches: (data?.punches || []).map(toPunch),
     date,
     loadedAt: new Date(),
   };
+}
+
+export async function findTerminalStaff(client, code) {
+  const { data, error } = await client.rpc("terminal_find_staff", { p_code: code });
+  if (error) throw error;
+  return data;
+}
+
+export async function saveTerminalPunch(client, { code, shiftId = null, action }) {
+  const functionName = action === "out" ? "terminal_clock_out" : "terminal_clock_in";
+  const args = action === "out"
+    ? { p_code: code }
+    : { p_code: code, p_shift_id: shiftId };
+  const { data, error } = await client.rpc(functionName, args);
+  if (error) throw error;
+  return data;
 }
 
 function validUuid(value) {

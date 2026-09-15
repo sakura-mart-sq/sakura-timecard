@@ -38,6 +38,7 @@ import {
   fetchManagerSnapshot,
   fetchStaffSnapshot,
   fetchTerminalSnapshot,
+  findTerminalStaff,
   importLegacyBackup,
   acceptOnlineShiftSwap,
   onlinePayrollRows,
@@ -45,6 +46,7 @@ import {
   saveOnlineShiftRequest,
   saveOnlineShiftSwap,
   saveOnlinePunch,
+  saveTerminalPunch,
   saveOnlinePayroll,
   saveOnlineShift,
   saveOnlineStaff,
@@ -67,6 +69,9 @@ import {
   weekDates,
   weekDayLabel,
 } from "./lib/time.js";
+
+const terminalMode = typeof window !== "undefined"
+  && new URLSearchParams(window.location.search).get("terminal") === "1";
 
 const emptyShiftForm = (startDate) => ({
   id: "",
@@ -147,6 +152,7 @@ export default function App() {
   const [onlineDataLoading, setOnlineDataLoading] = useState(false);
   const [onlineDataError, setOnlineDataError] = useState("");
   const [terminalStaffId, setTerminalStaffId] = useState("");
+  const [terminalCode, setTerminalCode] = useState("");
   const [terminalCodeInput, setTerminalCodeInput] = useState("");
   const [terminalCodeError, setTerminalCodeError] = useState(false);
   const [onlineWeekStart, setOnlineWeekStart] = useState(() => mondayOf(dateKey(new Date())));
@@ -177,6 +183,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (terminalMode) {
+      setOnlineAuthLoading(false);
+      return undefined;
+    }
     if (!supabase) {
       setOnlineAuthLoading(false);
       return undefined;
@@ -299,34 +309,29 @@ export default function App() {
     event.currentTarget.reset();
   }
 
-  function handleTerminalCodeSubmit(event) {
+  async function handleTerminalCodeSubmit(event) {
     event.preventDefault();
     const code = terminalCodeInput.trim();
-    const person = onlineSnapshot?.staff?.find((item) => item.code === code);
+    if (!supabase) return;
     setTerminalCodeInput("");
-    if (!person) {
+    setOnlineDataError("");
+    try {
+      const person = await findTerminalStaff(supabase, code);
+      if (!person) throw new Error("Staff code not found.");
+      setTerminalCode(code);
+      setTerminalStaffId(person.id);
+      setTerminalCodeError(false);
+    } catch (error) {
       setTerminalStaffId("");
+      setTerminalCode("");
       setTerminalCodeError(true);
-      return;
     }
-    setTerminalStaffId(person.id);
-    setTerminalCodeError(false);
   }
 
   async function handleTerminalClockIn(shift) {
     if (!supabase || !terminalStaffId) return;
-    const now = new Date();
     try {
-      await saveOnlinePunch(supabase, {
-        staffId: terminalStaffId,
-        shiftId: shift.id,
-        scheduledStaffId: shift.staffId,
-        startDate: dateKey(now),
-        startTime: timeLabel(now),
-        endDate: "",
-        endTime: "",
-        payrollFromActualStart: false,
-      });
+      await saveTerminalPunch(supabase, { code: terminalCode, shiftId: shift.id, action: "in" });
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "Could not sign in.");
@@ -337,19 +342,8 @@ export default function App() {
     if (!supabase || !terminalStaffId) return;
     const activePunch = onlineSnapshot?.punches?.find((punch) => punch.staffId === terminalStaffId && !punch.endAt);
     if (!activePunch) return;
-    const now = new Date();
     try {
-      await saveOnlinePunch(supabase, {
-        id: activePunch.id,
-        staffId: activePunch.staffId,
-        shiftId: activePunch.shiftId,
-        scheduledStaffId: activePunch.scheduledStaffId,
-        startDate: dateKey(new Date(activePunch.startAt)),
-        startTime: timeLabel(new Date(activePunch.startAt)),
-        endDate: dateKey(now),
-        endTime: timeLabel(now),
-        payrollFromActualStart: activePunch.payrollFromActualStart,
-      });
+      await saveTerminalPunch(supabase, { code: terminalCode, action: "out" });
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "Could not sign out.");
@@ -594,11 +588,13 @@ export default function App() {
   }
 
   async function refreshOnlineData() {
-    if (!supabase || !onlineRole) return;
+    if (!supabase || (!onlineRole && !terminalMode)) return;
     setOnlineDataLoading(true);
     setOnlineDataError("");
     try {
-      setOnlineSnapshot(onlineRole === "manager"
+      setOnlineSnapshot(terminalMode
+        ? await fetchTerminalSnapshot(supabase)
+        : onlineRole === "manager"
         ? await fetchManagerSnapshot(supabase, onlineWeekStart)
         : onlineRole === "terminal"
           ? await fetchTerminalSnapshot(supabase)
@@ -611,7 +607,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
+    if (terminalMode || onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
   }, [onlineRole, onlineStaffId, onlineWeekStart]);
 
   const today = dateKey(now);
@@ -857,7 +853,7 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
-  const onlinePortalActive = onlineSession && (onlineRole === "manager" || onlineRole === "staff" || onlineRole === "terminal");
+  const onlinePortalActive = terminalMode || (onlineSession && (onlineRole === "manager" || onlineRole === "staff" || onlineRole === "terminal"));
   const staffVisible = view === "staff" && !onlinePortalActive;
 
   return (
@@ -870,11 +866,11 @@ export default function App() {
           </div>
           <nav className="tabs" aria-label="画面切り替え">
             <button className={`tab ${view === "staff" ? "active" : ""}`} onClick={() => switchToView("staff")} type="button">Staff</button>
-            <button className={`tab ${view === "manager" ? "active" : ""}`} onClick={() => switchToView("manager")} type="button">Manager</button>
+            {!terminalMode ? <button className={`tab ${view === "manager" ? "active" : ""}`} onClick={() => switchToView("manager")} type="button">Manager</button> : null}
           </nav>
         </header>
 
-        {supabaseConfigured ? (
+        {supabaseConfigured && !terminalMode ? (
           <div className="online-bar" role="status">
             {onlinePortalActive ? (
               <>
@@ -930,7 +926,7 @@ export default function App() {
           />
         ) : null}
 
-        {onlineSession && onlineRole === "terminal" ? (
+        {(terminalMode || (onlineSession && onlineRole === "terminal")) ? (
           <OnlineTerminalPanel
             data={onlineSnapshot}
             error={onlineDataError}
