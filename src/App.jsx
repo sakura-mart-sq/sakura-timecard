@@ -1688,6 +1688,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
+  const timelineBounds = { start: 8 * 60, end: 20 * 60 };
   return (
     <section className="online-manager-panel" aria-label="管理画面">
       <div className="online-manager-heading">
@@ -1718,17 +1719,29 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
             <div className="online-actions">
               <button onClick={onAddShift} type="button">シフト追加</button>
             </div>
-            <div className="online-table-wrap">
-              <table className="online-table">
-                <thead><tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th><th>操作</th></tr></thead>
-                <tbody>
-                  {dates.map((date) => {
-                    const shifts = data.shifts.filter((shift) => shift.date === date);
-                    if (!shifts.length) return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="5" className="muted-cell">シフトなし</td></tr>;
-                    return shifts.map((shift) => <tr key={shift.id}><td>{weekDayLabel(date, "ja")}</td><td>{staffById.get(shift.staffId)?.name || "未登録"}</td><td>{displayShiftLabel(shift)}</td><td>{shift.status === "draft" ? "下書き" : "公開"}</td><td>{shift.note || ""}</td><td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td></tr>);
-                  })}
-                </tbody>
-              </table>
+            <div className="online-shift-graph">
+              <div className="online-shift-graph-head"><span>日付</span><div><span>08:00</span><span>14:00</span><span>20:00</span></div></div>
+              {dates.map((date) => {
+                const shifts = data.shifts.filter((shift) => shift.date === date).sort((a, b) => a.start - b.start);
+                return <div className="online-shift-graph-row" key={date}>
+                  <div className="online-shift-graph-date">{weekDayLabel(date, "ja")}</div>
+                  <div className="online-shift-graph-track">
+                    {shifts.length ? shifts.map((shift) => (
+                      <button
+                        className={`online-shift-bar ${shift.status === "draft" ? "draft" : ""}`}
+                        key={shift.id}
+                        onClick={() => onEditShift(shift)}
+                        style={timelineStyle(shift, timelineBounds)}
+                        title={`${staffById.get(shift.staffId)?.name || "未登録"} ${displayShiftLabel(shift)}`}
+                        type="button"
+                      >
+                        <strong>{staffById.get(shift.staffId)?.name || "未登録"}</strong>
+                        <span>{displayShiftLabel(shift)}</span>
+                      </button>
+                    )) : <span className="online-shift-graph-empty">シフトなし</span>}
+                  </div>
+                </div>;
+              })}
             </div>
           </> : null}
           <div className="online-staff-list">
