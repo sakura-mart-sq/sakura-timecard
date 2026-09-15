@@ -1,4 +1,4 @@
-import { addDays, dateTimeFromDateKeyAndMinutes, dateTimeFromFields, dateKey, timeLabel } from "./time.js";
+import { addDays, dateTimeFromDateKeyAndMinutes, dateTimeFromFields, dateKey, mondayOf, timeLabel } from "./time.js";
 
 function toShift(row) {
   return {
@@ -65,10 +65,16 @@ function toShiftSwap(row) {
   };
 }
 
-export async function fetchManagerSnapshot(client, weekStart) {
+export async function fetchManagerSnapshot(client, weekStart, showAllSwaps = false) {
   const weekEnd = addDays(weekStart, 6);
   const start = dateTimeFromFields(weekStart, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(weekEnd, 1), "00:00").toISOString();
+  const swapQuery = client
+    .from("shift_swaps")
+    .select("id, shift_id, from_staff_id, accepted_by, status, note, created_at, shifts!inner(work_date, start_minute, end_minute)");
+  if (!showAllSwaps) {
+    swapQuery.gte("shifts.work_date", mondayOf(dateKey(new Date())));
+  }
   const [staffResult, codeResult, shiftResult, punchResult, payrollResult, requestResult, swapResult, settingsResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active, email").order("name"),
     client.from("staff_codes").select("staff_id, code"),
@@ -97,10 +103,7 @@ export async function fetchManagerSnapshot(client, weekStart) {
       .lte("work_date", weekEnd)
       .order("work_date")
       .order("created_at", { ascending: false }),
-    client
-      .from("shift_swaps")
-      .select("id, shift_id, from_staff_id, accepted_by, status, note, created_at, shifts!inner(work_date, start_minute, end_minute)")
-      .order("created_at", { ascending: false }),
+    swapQuery.order("created_at", { ascending: false }),
     client.from("app_settings").select("store_name, admin_passcode").eq("id", true),
   ]);
 

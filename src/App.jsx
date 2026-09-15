@@ -172,6 +172,7 @@ export default function App() {
   const [showOnlinePunchDialog, setShowOnlinePunchDialog] = useState(false);
   const [onlinePayrollResult, setOnlinePayrollResult] = useState([]);
   const [onlinePayrollSource, setOnlinePayrollSource] = useState(null);
+  const [onlineShowAllSwaps, setOnlineShowAllSwaps] = useState(false);
 
   useEffect(() => {
     saveState(state);
@@ -667,7 +668,7 @@ export default function App() {
       const nextSnapshot = terminalMode
         ? await fetchTerminalSnapshot(supabase)
         : onlineRole === "manager"
-        ? await fetchManagerSnapshot(supabase, onlineWeekStart)
+        ? await fetchManagerSnapshot(supabase, onlineWeekStart, onlineShowAllSwaps)
         : onlineRole === "terminal"
           ? await fetchTerminalSnapshot(supabase)
           : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart);
@@ -684,7 +685,7 @@ export default function App() {
 
   useEffect(() => {
     if (terminalMode || onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
-  }, [onlineRole, onlineStaffId, onlineWeekStart]);
+  }, [onlineRole, onlineStaffId, onlineWeekStart, onlineShowAllSwaps]);
 
   const today = dateKey(now);
   const weeklyDates = useMemo(() => weekDates(shiftWeekStart), [shiftWeekStart]);
@@ -989,6 +990,8 @@ export default function App() {
             onExportPayroll={handleExportOnlinePayroll}
             onExportPayrollPdf={handleExportOnlinePayrollPdf}
             onSaveSettings={handleSaveOnlineSettings}
+            showAllSwaps={onlineShowAllSwaps}
+            onToggleAllSwaps={() => setOnlineShowAllSwaps((current) => !current)}
             payrollResult={onlinePayrollResult}
             onImportBackup={handleLegacyImport}
             onRefresh={refreshOnlineData}
@@ -1661,7 +1664,7 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onUpdateRequest, payrollResult }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -1747,20 +1750,21 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
           </div>
           <div className="online-staff-list">
             {activeTab === "shifts" ? <>
-            <div className="online-manager-heading"><h3>シフト交代</h3></div>
+            <div className="online-manager-heading"><h3>シフト交代</h3><button className="ghost" onClick={onToggleAllSwaps} type="button">{showAllSwaps ? "今週以降のみ表示" : "Show all"}</button></div>
             <div className="online-table-wrap">
               <table className="online-table">
-                <thead><tr><th>日付</th><th>元スタッフ</th><th>時間</th><th>状態</th><th>メモ</th></tr></thead>
+                <thead><tr><th>日付</th><th>元スタッフ</th><th>交代スタッフ</th><th>時間</th><th>状態</th><th>メモ</th></tr></thead>
                 <tbody>
                   {data.shiftSwaps.length ? data.shiftSwaps.map((swap) => (
                     <tr key={swap.id}>
                       <td>{swap.date}</td>
                       <td>{staffById.get(swap.fromStaffId)?.name || "未登録"}</td>
+                      <td>{swap.acceptedBy ? staffById.get(swap.acceptedBy)?.name || "未登録" : "未確定"}</td>
                       <td>{minutesToTime(swap.start)} - {minutesToTime(swap.end)}</td>
                       <td>{swap.status}</td>
                       <td>{swap.note}</td>
                     </tr>
-                  )) : <tr><td colSpan="5" className="muted-cell">シフト交代の申請はありません。</td></tr>}
+                  )) : <tr><td colSpan="6" className="muted-cell">シフト交代の申請はありません。</td></tr>}
                 </tbody>
               </table>
             </div>
