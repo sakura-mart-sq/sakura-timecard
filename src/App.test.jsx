@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.jsx";
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "?local=1");
   vi.useFakeTimers();
   localStorage.clear();
   vi.restoreAllMocks();

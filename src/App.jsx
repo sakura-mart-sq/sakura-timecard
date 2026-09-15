@@ -113,6 +113,8 @@ const emptyOnlineShiftForm = (date, staffId = "") => ({
 const emptyOnlineRequestForm = (date) => ({ date, start: "09:00", end: "17:00", note: "" });
 
 export default function App() {
+  const legacyLocalMode = typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("local") === "1";
   const [state, setState] = useState(() => loadState());
   const [view, setView] = useState("staff");
   const [adminUnlocked, setAdminUnlocked] = useState(false);
@@ -854,7 +856,8 @@ export default function App() {
 
   const managerVisible = view === "manager";
   const onlinePortalActive = terminalMode || (onlineSession && (onlineRole === "manager" || onlineRole === "staff" || onlineRole === "terminal"));
-  const staffVisible = view === "staff" && !onlinePortalActive;
+  const localPunchVisible = legacyLocalMode || (!supabaseConfigured && !terminalMode);
+  const staffVisible = view === "staff" && !onlinePortalActive && localPunchVisible;
 
   return (
     <>
@@ -865,8 +868,10 @@ export default function App() {
             <p id="todayLabel">{view === "staff" ? staffFormatter.format(now) : formatter.format(now)}</p>
           </div>
           <nav className="tabs" aria-label="画面切り替え">
-            <button className={`tab ${view === "staff" ? "active" : ""}`} onClick={() => switchToView("staff")} type="button">Staff</button>
-            {!terminalMode ? <button className={`tab ${view === "manager" ? "active" : ""}`} onClick={() => switchToView("manager")} type="button">Manager</button> : null}
+            {legacyLocalMode || (!supabaseConfigured && !terminalMode) ? <>
+              <button className={`tab ${view === "staff" ? "active" : ""}`} onClick={() => switchToView("staff")} type="button">Staff</button>
+              <button className={`tab ${view === "manager" ? "active" : ""}`} onClick={() => switchToView("manager")} type="button">Manager</button>
+            </> : null}
           </nav>
         </header>
 
@@ -1569,66 +1574,55 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
 }
 
 function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll, onImportBackup, onUpdateRequest }) {
+  const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   return (
-    <section className="online-manager-panel" aria-labelledby="onlineManagerHeading">
+    <section className="online-manager-panel" aria-label="管理画面">
       <div className="online-manager-heading">
-        <div>
-          <p className="eyebrow">SUPABASE ONLINE</p>
-          <h2 id="onlineManagerHeading">オンライン管理画面</h2>
-        </div>
         <button className="ghost" disabled={loading} onClick={onRefresh} type="button">
           {loading ? "読み込み中..." : "更新"}
         </button>
       </div>
+      <nav className="online-manager-tabs" aria-label="管理画面の切り替え">
+        {[["shifts", "シフト"], ["attendance", "勤務状況"], ["staff", "スタッフ"], ["payroll", "給与計算"]].map(([id, label]) => (
+          <button className={activeTab === id ? "active" : ""} key={id} onClick={() => setActiveTab(id)} type="button">{label}</button>
+        ))}
+      </nav>
       {error ? <p className="error">{error}</p> : null}
       {!data && loading ? <p className="empty">Supabaseからデータを読み込んでいます。</p> : null}
       {data ? (
         <>
-          <div className="online-week-controls">
-            <button aria-label="オンラインの前の週" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
-            <strong>{weekDayLabel(data.weekStart, "ja")} - {weekDayLabel(data.weekEnd, "ja")}</strong>
-            <button aria-label="オンラインの次の週" className="ghost" onClick={onNextWeek} type="button">›</button>
-          </div>
-          <div className="online-summary">
-            <span>スタッフ {data.staff.length}名</span>
-            <span>シフト {data.shifts.length}件</span>
-            <span>取得 {dateTimeLabel(data.loadedAt)}</span>
-          </div>
-          <div className="online-actions">
-            <button onClick={onAddShift} type="button">シフト追加</button>
-            <button className="secondary" onClick={onAddStaff} type="button">スタッフ追加</button>
-            <button className="ghost" onClick={onAddPunch} type="button">勤務記録追加</button>
-            <label className="import-button">旧バックアップ移行<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
-          </div>
-          <div className="online-table-wrap">
-            <table className="online-table">
-              <thead>
-                <tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th><th>操作</th></tr>
-              </thead>
-              <tbody>
-                {dates.map((date) => {
-                  const shifts = data.shifts.filter((shift) => shift.date === date);
-                  if (!shifts.length) {
-                    return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="5" className="muted-cell">シフトなし</td></tr>;
-                  }
-                  return shifts.map((shift) => (
-                    <tr key={shift.id}>
-                      <td>{weekDayLabel(date, "ja")}</td>
-                      <td>{staffById.get(shift.staffId)?.name || "未登録"}</td>
-                      <td>{displayShiftLabel(shift)}</td>
-                      <td>{shift.status === "draft" ? "下書き" : "公開"}</td>
-                      <td>{shift.note || ""}</td>
-                      <td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
+          {activeTab === "shifts" ? <>
+            <div className="online-week-controls">
+              <button aria-label="オンラインの前の週" className="ghost" onClick={onPreviousWeek} type="button">‹</button>
+              <strong>{weekDayLabel(data.weekStart, "ja")} - {weekDayLabel(data.weekEnd, "ja")}</strong>
+              <button aria-label="オンラインの次の週" className="ghost" onClick={onNextWeek} type="button">›</button>
+            </div>
+            <div className="online-summary">
+              <span>スタッフ {data.staff.length}名</span>
+              <span>シフト {data.shifts.length}件</span>
+              <span>取得 {dateTimeLabel(data.loadedAt)}</span>
+            </div>
+            <div className="online-actions">
+              <button onClick={onAddShift} type="button">シフト追加</button>
+            </div>
+            <div className="online-table-wrap">
+              <table className="online-table">
+                <thead><tr><th>日付</th><th>スタッフ</th><th>予定</th><th>状態</th><th>備考</th><th>操作</th></tr></thead>
+                <tbody>
+                  {dates.map((date) => {
+                    const shifts = data.shifts.filter((shift) => shift.date === date);
+                    if (!shifts.length) return <tr key={date}><td>{weekDayLabel(date, "ja")}</td><td colSpan="5" className="muted-cell">シフトなし</td></tr>;
+                    return shifts.map((shift) => <tr key={shift.id}><td>{weekDayLabel(date, "ja")}</td><td>{staffById.get(shift.staffId)?.name || "未登録"}</td><td>{displayShiftLabel(shift)}</td><td>{shift.status === "draft" ? "下書き" : "公開"}</td><td>{shift.note || ""}</td><td><button className="compact-edit ghost" onClick={() => onEditShift(shift)} type="button">変更</button></td></tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </> : null}
           <div className="online-staff-list">
-            <h3>スタッフ</h3>
+            {activeTab === "staff" ? <>
+            <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button><label className="import-button">旧バックアップ移行<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label></div>
             {data.staff.length ? data.staff.map((person) => (
               <div className="online-staff-row" key={person.id}>
                 <span>{person.name}</span>
@@ -1638,8 +1632,10 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
               </div>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
+            </> : null}
           </div>
           <div className="online-staff-list">
+            {activeTab === "shifts" ? <>
             <div className="online-manager-heading"><h3>シフト希望</h3></div>
             <div className="online-table-wrap">
               <table className="online-table">
@@ -1658,8 +1654,10 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 </tbody>
               </table>
             </div>
+            </> : null}
           </div>
           <div className="online-staff-list">
+            {activeTab === "shifts" ? <>
             <div className="online-manager-heading"><h3>シフト交代</h3></div>
             <div className="online-table-wrap">
               <table className="online-table">
@@ -1677,8 +1675,10 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 </tbody>
               </table>
             </div>
+            </> : null}
           </div>
           <div className="online-staff-list">
+            {activeTab === "payroll" ? <>
             <h3>給与計算（表示中の週）</h3>
             <div className="online-payroll-table">
               {onlinePayrollRows(data).map((row) => (
@@ -1696,8 +1696,10 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 </div>
               ))}
             </div>
+            </> : null}
           </div>
           <div className="online-staff-list">
+            {activeTab === "attendance" ? <>
             <div className="online-manager-heading">
               <h3>勤務実績</h3>
               <button className="ghost" onClick={onAddPunch} type="button">追加</button>
@@ -1712,6 +1714,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 </tbody>
               </table>
             </div>
+            </> : null}
           </div>
         </>
       ) : null}
