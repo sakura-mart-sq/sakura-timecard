@@ -541,6 +541,25 @@ export default function App() {
   async function handleUpdateOnlineRequest(requestId, status) {
     if (!supabase) return;
     try {
+      const request = onlineSnapshot?.shiftRequests?.find((item) => item.id === requestId);
+      if (status === "approved" && request) {
+        const alreadyScheduled = onlineSnapshot.shifts.some((shift) => (
+          shift.date === request.date
+          && shift.staffId === request.staffId
+          && shift.start === request.start
+          && shift.end === request.end
+        ));
+        if (!alreadyScheduled) {
+          await saveOnlineShift(supabase, {
+            date: request.date,
+            staffId: request.staffId,
+            start: request.start,
+            end: request.end,
+            note: request.note,
+            status: "published",
+          });
+        }
+      }
       await updateOnlineShiftRequest(supabase, requestId, status);
       await refreshOnlineData();
     } catch (error) {
