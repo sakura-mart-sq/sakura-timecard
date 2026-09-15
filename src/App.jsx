@@ -1616,7 +1616,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
         </button>
       </div>
       <nav className="online-manager-tabs" aria-label="管理画面の切り替え">
-        {[["shifts", "シフト"], ["attendance", "勤務状況"], ["staff", "スタッフ"], ["payroll", "給与計算"]].map(([id, label]) => (
+        {[["shifts", "シフト"], ["attendance", "勤務状況"], ["staff", "スタッフ"], ["payroll", "給与計算"], ["management", "管理"]].map(([id, label]) => (
           <button className={activeTab === id ? "active" : ""} key={id} onClick={() => setActiveTab(id)} type="button">{label}</button>
         ))}
       </nav>
@@ -1653,7 +1653,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
           </> : null}
           <div className="online-staff-list">
             {activeTab === "staff" ? <>
-            <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button><label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label></div>
+            <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button></div>
             {data.staff.length ? data.staff.map((person) => (
               <div className="online-staff-row" key={person.id}>
                 <span>{person.name}</span>
@@ -1749,6 +1749,14 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 </tbody>
               </table>
             </div>
+            </> : null}
+          </div>
+          <div className="online-staff-list">
+            {activeTab === "management" ? <>
+              <h3>バックアップ</h3>
+              <div className="online-actions">
+                <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
+              </div>
             </> : null}
           </div>
         </>
