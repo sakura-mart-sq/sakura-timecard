@@ -171,6 +171,108 @@ export async function fetchStaffSnapshot(client, staffId, weekStart) {
   };
 }
 
+export async function fetchTerminalSnapshot(client, date = dateKey(new Date())) {
+  const start = dateTimeFromFields(date, "00:00").toISOString();
+  const end = dateTimeFromFields(addDays(date, 1), "00:00").toISOString();
+  const [staffResult, codeResult, shiftResult, punchResult] = await Promise.all([
+    client.from("staff").select("id, name, hourly_wage, active, email").eq("active", true).order("name"),
+    client.from("staff_codes").select("staff_id, code"),
+    client.from("shifts").select("id, work_date, staff_id, start_minute, end_minute, note, status").eq("work_date", date).eq("status", "published").order("start_minute"),
+    client.from("punches").select("id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start").gte("clock_in", start).lt("clock_in", end).order("clock_in"),
+  ]);
+  if (staffResult.error) throw staffResult.error;
+  if (codeResult.error) throw codeResult.error;
+  if (shiftResult.error) throw shiftResult.error;
+  if (punchResult.error) throw punchResult.error;
+  return {
+    staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
+    shifts: (shiftResult.data || []).map(toShift),
+    punches: (punchResult.data || []).map(toPunch),
+    date,
+    loadedAt: new Date(),
+  };
+}
+
+function validUuid(value) {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function migrationId(value) {
+  return validUuid(value) ? value : crypto.randomUUID();
+}
+
+export async function importLegacyBackup(client, payload) {
+  const data = payload?.data || payload;
+  if (!Array.isArray(data?.staff) || !Array.isArray(data?.shifts) || !Array.isArray(data?.punches)) {
+    throw new Error("Invalid timecard backup file.");
+  }
+
+  const staffIdMap = new Map();
+  const codeMap = new Map();
+  const usedCodes = new Set();
+  const staffRows = data.staff.map((person) => {
+    const id = migrationId(person.id);
+    staffIdMap.set(person.id, id);
+    let code = String(person.code || "");
+    while (!/^\d{5}$/.test(code) || usedCodes.has(code)) code = String(Math.floor(10000 + Math.random() * 90000));
+    usedCodes.add(code);
+    codeMap.set(person.id, code);
+    return {
+      id,
+      name: String(person.name || "Unnamed staff"),
+      hourly_wage: Number(person.wage || 0),
+      staff_code_hash: awaitHash(code),
+      active: true,
+      email: person.email || null,
+    };
+  });
+  const resolvedStaffRows = [];
+  for (const row of staffRows) resolvedStaffRows.push({ ...row, staff_code_hash: await row.staff_code_hash });
+  let result = await client.from("staff").upsert(resolvedStaffRows);
+  if (result.error) throw result.error;
+
+  const codeRows = data.staff.map((person) => ({
+    staff_id: staffIdMap.get(person.id),
+    code: codeMap.get(person.id),
+  }));
+  result = await client.from("staff_codes").upsert(codeRows, { onConflict: "staff_id" });
+  if (result.error) throw result.error;
+
+  const shiftIdMap = new Map();
+  const shiftRows = data.shifts.map((shift) => {
+    const id = migrationId(shift.id);
+    shiftIdMap.set(shift.id, id);
+    return {
+      id,
+      work_date: shift.date,
+      staff_id: staffIdMap.get(shift.staffId),
+      start_minute: Number(shift.start),
+      end_minute: Number(shift.end),
+      note: shift.note || "",
+      status: shift.status === "draft" ? "draft" : "published",
+    };
+  }).filter((row) => row.staff_id);
+  result = await client.from("shifts").upsert(shiftRows);
+  if (result.error) throw result.error;
+
+  const punchRows = data.punches.map((punch) => ({
+    id: migrationId(punch.id),
+    staff_id: staffIdMap.get(punch.staffId),
+    shift_id: punch.shiftId ? shiftIdMap.get(punch.shiftId) || null : null,
+    scheduled_staff_id: punch.scheduledStaffId ? staffIdMap.get(punch.scheduledStaffId) : staffIdMap.get(punch.staffId),
+    clock_in: punch.startAt,
+    clock_out: punch.endAt || null,
+    payroll_from_actual_start: Boolean(punch.payrollFromActualStart),
+  })).filter((row) => row.staff_id && row.clock_in);
+  result = await client.from("punches").upsert(punchRows);
+  if (result.error) throw result.error;
+  return { staff: staffRows.length, shifts: shiftRows.length, punches: punchRows.length };
+}
+
+async function awaitHash(code) {
+  return hashStaffCode(code);
+}
+
 export function onlinePayrollRows(snapshot) {
   return (snapshot?.staff || []).map((person) => {
     const minutes = (snapshot.punches || []).reduce((total, punch) => {

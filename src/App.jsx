@@ -37,6 +37,8 @@ import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
   fetchStaffSnapshot,
+  fetchTerminalSnapshot,
+  importLegacyBackup,
   acceptOnlineShiftSwap,
   onlinePayrollRows,
   onlinePunchRows,
@@ -144,6 +146,9 @@ export default function App() {
   const [onlineSnapshot, setOnlineSnapshot] = useState(null);
   const [onlineDataLoading, setOnlineDataLoading] = useState(false);
   const [onlineDataError, setOnlineDataError] = useState("");
+  const [terminalStaffId, setTerminalStaffId] = useState("");
+  const [terminalCodeInput, setTerminalCodeInput] = useState("");
+  const [terminalCodeError, setTerminalCodeError] = useState(false);
   const [onlineWeekStart, setOnlineWeekStart] = useState(() => mondayOf(dateKey(new Date())));
   const [onlineStaffForm, setOnlineStaffForm] = useState(emptyOnlineStaffForm);
   const [onlineShiftForm, setOnlineShiftForm] = useState(() => emptyOnlineShiftForm(dateKey(new Date())));
@@ -209,7 +214,7 @@ export default function App() {
       .eq("id", userId)
       .maybeSingle();
     if (error) {
-      setOnlineAuthError("管理者プロフィールを確認できませんでした。");
+      setOnlineAuthError("We couldn't verify your account profile.");
       setOnlineRole("");
       return "";
     }
@@ -223,8 +228,8 @@ export default function App() {
     const role = data?.active ? data.role : "";
     setOnlineRole(role);
     setOnlineStaffId(data?.active ? data.staff_id || "" : "");
-    if (role !== "manager" && role !== "staff") {
-      setOnlineAuthError("このアカウントには利用権限がありません。");
+    if (role !== "manager" && role !== "staff" && role !== "terminal") {
+      setOnlineAuthError("This account does not have access.");
       await supabase.auth.signOut();
     }
     return role;
@@ -254,7 +259,7 @@ export default function App() {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setOnlineAuthLoading(false);
-      setOnlineAuthError("メールアドレスまたはパスワードを確認してください。");
+      setOnlineAuthError("Check your email address and password.");
       return;
     }
     const role = await ensureOnlineRole(data.user?.id);
@@ -284,7 +289,7 @@ export default function App() {
     }
     if (!data.session) {
       setOnlineAuthLoading(false);
-      setOnlineAuthError("確認メールを送信しました。メール内のリンクを開いてからログインしてください。");
+      setOnlineAuthError("A confirmation email was sent. Open the link, then log in.");
       event.currentTarget.reset();
       return;
     }
@@ -292,6 +297,79 @@ export default function App() {
     setOnlineAuthLoading(false);
     setShowOnlineLogin(false);
     event.currentTarget.reset();
+  }
+
+  function handleTerminalCodeSubmit(event) {
+    event.preventDefault();
+    const code = terminalCodeInput.trim();
+    const person = onlineSnapshot?.staff?.find((item) => item.code === code);
+    setTerminalCodeInput("");
+    if (!person) {
+      setTerminalStaffId("");
+      setTerminalCodeError(true);
+      return;
+    }
+    setTerminalStaffId(person.id);
+    setTerminalCodeError(false);
+  }
+
+  async function handleTerminalClockIn(shift) {
+    if (!supabase || !terminalStaffId) return;
+    const now = new Date();
+    try {
+      await saveOnlinePunch(supabase, {
+        staffId: terminalStaffId,
+        shiftId: shift.id,
+        scheduledStaffId: shift.staffId,
+        startDate: dateKey(now),
+        startTime: timeLabel(now),
+        endDate: "",
+        endTime: "",
+        payrollFromActualStart: false,
+      });
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "Could not sign in.");
+    }
+  }
+
+  async function handleTerminalClockOut() {
+    if (!supabase || !terminalStaffId) return;
+    const activePunch = onlineSnapshot?.punches?.find((punch) => punch.staffId === terminalStaffId && !punch.endAt);
+    if (!activePunch) return;
+    const now = new Date();
+    try {
+      await saveOnlinePunch(supabase, {
+        id: activePunch.id,
+        staffId: activePunch.staffId,
+        shiftId: activePunch.shiftId,
+        scheduledStaffId: activePunch.scheduledStaffId,
+        startDate: dateKey(new Date(activePunch.startAt)),
+        startTime: timeLabel(new Date(activePunch.startAt)),
+        endDate: dateKey(now),
+        endTime: timeLabel(now),
+        payrollFromActualStart: activePunch.payrollFromActualStart,
+      });
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "Could not sign out.");
+    }
+  }
+
+  async function handleLegacyImport(event) {
+    const [file] = event.target.files || [];
+    if (!file || !supabase) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      if (!window.confirm("Import this backup into Supabase? Existing records will not be deleted.")) return;
+      const result = await importLegacyBackup(supabase, payload);
+      await refreshOnlineData();
+      window.alert(`Imported ${result.staff} staff, ${result.shifts} shifts, and ${result.punches} punches.`);
+    } catch (error) {
+      setOnlineDataError(error?.message || "Could not import the backup file.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   async function handleOnlineLogout() {
@@ -409,7 +487,7 @@ export default function App() {
       setShowOnlineRequestDialog(false);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "シフト希望を提出できませんでした。");
+      setOnlineDataError(error?.message || "Could not submit the shift request.");
     }
   }
 
@@ -419,7 +497,7 @@ export default function App() {
       await withdrawOnlineShiftRequest(supabase, requestId);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "シフト希望を取り下げできませんでした。");
+      setOnlineDataError(error?.message || "Could not withdraw the shift request.");
     }
   }
 
@@ -446,7 +524,7 @@ export default function App() {
       setShowOnlineSwapDialog(false);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "シフト交代を申請できませんでした。");
+      setOnlineDataError(error?.message || "Could not submit the shift swap request.");
     }
   }
 
@@ -456,7 +534,7 @@ export default function App() {
       await cancelOnlineShiftSwap(supabase, swapId);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "シフト交代の申請を取り下げできませんでした。");
+      setOnlineDataError(error?.message || "Could not cancel the shift swap request.");
     }
   }
 
@@ -466,7 +544,7 @@ export default function App() {
       await acceptOnlineShiftSwap(supabase, swapId);
       await refreshOnlineData();
     } catch (error) {
-      setOnlineDataError(error?.message || "シフト交代を受諾できませんでした。");
+      setOnlineDataError(error?.message || "Could not accept the shift swap.");
     }
   }
 
@@ -522,16 +600,18 @@ export default function App() {
     try {
       setOnlineSnapshot(onlineRole === "manager"
         ? await fetchManagerSnapshot(supabase, onlineWeekStart)
-        : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart));
+        : onlineRole === "terminal"
+          ? await fetchTerminalSnapshot(supabase)
+          : await fetchStaffSnapshot(supabase, onlineStaffId, onlineWeekStart));
     } catch (error) {
-      setOnlineDataError(error?.message || "オンラインデータを読み込めませんでした。");
+      setOnlineDataError(error?.message || "Could not load online data.");
     } finally {
       setOnlineDataLoading(false);
     }
   }
 
   useEffect(() => {
-    if (onlineRole === "manager" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
+    if (onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
   }, [onlineRole, onlineStaffId, onlineWeekStart]);
 
   const today = dateKey(now);
@@ -777,7 +857,7 @@ export default function App() {
   }
 
   const managerVisible = view === "manager";
-  const onlinePortalActive = onlineSession && (onlineRole === "manager" || onlineRole === "staff");
+  const onlinePortalActive = onlineSession && (onlineRole === "manager" || onlineRole === "staff" || onlineRole === "terminal");
   const staffVisible = view === "staff" && !onlinePortalActive;
 
   return (
@@ -798,16 +878,16 @@ export default function App() {
           <div className="online-bar" role="status">
             {onlinePortalActive ? (
               <>
-                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "manager" ? "Online manager" : "Online staff"}: {onlineSession.user.email}</span>
-                <button className="ghost" onClick={handleOnlineLogout} type="button">ログアウト</button>
+                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "manager" ? "Online manager" : onlineRole === "terminal" ? "Terminal" : "Online staff"}: {onlineSession.user.email}</span>
+                <button className="ghost" onClick={handleOnlineLogout} type="button">{onlineRole === "manager" ? "ログアウト" : "Log out"}</button>
               </>
             ) : (
               <>
-                <span>{supabaseMode === "test" ? "テスト用オンライン管理画面" : "オンライン管理画面"}</span>
+                <span>{supabaseMode === "test" ? "TEST / Online portal" : "Online portal"}</span>
                 <button onClick={() => {
                   setOnlineAuthError("");
                   setShowOnlineLogin(true);
-                }} type="button">オンラインログイン</button>
+                }} type="button">Log in</button>
               </>
             )}
           </div>
@@ -827,6 +907,7 @@ export default function App() {
             onAddPunch={() => openOnlinePunchDialog()}
             onEditPunch={openOnlinePunchDialog}
             onSavePayroll={handleSaveOnlinePayroll}
+            onImportBackup={handleLegacyImport}
             onRefresh={refreshOnlineData}
             onRequest={openOnlineRequestDialog}
             onWithdrawRequest={handleWithdrawOnlineRequest}
@@ -846,6 +927,22 @@ export default function App() {
             onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
             onRefresh={refreshOnlineData}
             onUpdateRequest={handleUpdateOnlineRequest}
+          />
+        ) : null}
+
+        {onlineSession && onlineRole === "terminal" ? (
+          <OnlineTerminalPanel
+            data={onlineSnapshot}
+            error={onlineDataError}
+            loading={onlineDataLoading}
+            staffId={terminalStaffId}
+            code={terminalCodeInput}
+            codeError={terminalCodeError}
+            onCodeChange={setTerminalCodeInput}
+            onCodeSubmit={handleTerminalCodeSubmit}
+            onClockIn={handleTerminalClockIn}
+            onClockOut={handleTerminalClockOut}
+            onRefresh={refreshOnlineData}
           />
         ) : null}
 
@@ -1101,25 +1198,25 @@ export default function App() {
       ) : null}
 
       {showOnlineLogin ? (
-        <Dialog onClose={() => setShowOnlineLogin(false)} title="オンラインログイン">
+        <Dialog onClose={() => setShowOnlineLogin(false)} title="Log in">
           <form className="dialog-panel" onSubmit={onlineAuthMode === "signup" ? handleOnlineSignup : handleOnlineLogin}>
-            <h2>{onlineAuthMode === "signup" ? "スタッフアカウント作成" : "オンラインログイン"}</h2>
-            <p className="note">{onlineAuthMode === "signup" ? "管理者に登録されたメールアドレスを入力してください。" : "登録済みのメールアドレスでログインします。"}</p>
+            <h2>Log in</h2>
+            <p className="note">{onlineAuthMode === "signup" ? "Use the email address registered by your manager." : "Use your registered email address and password."}</p>
             <label className="field">
-              <span>メールアドレス</span>
+              <span>Email</span>
               <input name="email" type="email" autoComplete="username" required />
             </label>
             <label className="field">
-              <span>パスワード</span>
+              <span>Password</span>
               <input name="password" type="password" autoComplete="current-password" required />
             </label>
             <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
             <div className="dialog-actions">
-              <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">キャンセル</button>
-              <button className="ghost" onClick={() => { setOnlineAuthMode(onlineAuthMode === "signup" ? "login" : "signup"); setOnlineAuthError(""); }} type="button">
-                {onlineAuthMode === "signup" ? "ログインへ" : "初回アカウント作成"}
-              </button>
-              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "処理中..." : onlineAuthMode === "signup" ? "アカウント作成" : "ログイン"}</button>
+              <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">Cancel</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : "Log in"}</button>
+            </div>
+            <div className="auth-signup-link">
+              <button className="text-link" onClick={() => { setOnlineAuthMode(onlineAuthMode === "signup" ? "login" : "signup"); setOnlineAuthError(""); }} type="button">{onlineAuthMode === "signup" ? "Back to Log in" : "Sign Up"}</button>
             </div>
           </form>
         </Dialog>
@@ -1428,7 +1525,54 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll, onUpdateRequest }) {
+function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, onCodeChange, onCodeSubmit, onClockIn, onClockOut, onRefresh }) {
+  const person = data?.staff?.find((item) => item.id === staffId);
+  const activePunch = data?.punches?.find((punch) => punch.staffId === staffId && !punch.endAt);
+  const shifts = data?.shifts?.filter((shift) => shift.staffId === staffId) || [];
+  return (
+    <section className="online-manager-panel terminal-panel" aria-labelledby="terminalHeading">
+      <div className="online-manager-heading">
+        <div>
+          <p className="eyebrow">SUPABASE TERMINAL</p>
+          <h2 id="terminalHeading">Staff Sign In</h2>
+        </div>
+        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">{loading ? "Loading..." : "Refresh"}</button>
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+      <form className="code-form" onSubmit={onCodeSubmit}>
+        <label className="field">
+          <span>Staff Code</span>
+          <input autoComplete="off" inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required value={code} onChange={(event) => onCodeChange(event.target.value)} />
+        </label>
+        <button type="submit">Continue</button>
+      </form>
+      {codeError ? <p className="error">Staff code not found.</p> : null}
+      {person ? <p className="terminal-welcome">Welcome, {person.name}</p> : <p className="empty">Enter your staff code.</p>}
+      {activePunch ? (
+        <div className="status-box">
+          <span>Signed in since {timeLabel(new Date(activePunch.startAt))}</span>
+          <button className="danger" onClick={onClockOut} type="button">Sign Out</button>
+        </div>
+      ) : null}
+      {person && !activePunch ? (
+        <div className="shift-grid">
+          {shifts.length ? shifts.map((shift) => {
+            const punch = data.punches.find((item) => item.shiftId === shift.id);
+            return (
+              <article className="shift-card" key={shift.id}>
+                <strong>Your scheduled shift</strong>
+                <div className="meta">{minutesToTime(shift.start)} - {minutesToTime(shift.end)}</div>
+                {punch ? <div className="meta">Already signed in</div> : <button onClick={() => onClockIn(shift)} type="button">Sign In</button>}
+              </article>
+            );
+          }) : <p className="empty">No shift scheduled for today.</p>}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onSavePayroll, onImportBackup, onUpdateRequest }) {
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   return (
@@ -1460,6 +1604,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
             <button onClick={onAddShift} type="button">シフト追加</button>
             <button className="secondary" onClick={onAddStaff} type="button">スタッフ追加</button>
             <button className="ghost" onClick={onAddPunch} type="button">勤務記録追加</button>
+            <label className="import-button">旧バックアップ移行<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
           </div>
           <div className="online-table-wrap">
             <table className="online-table">

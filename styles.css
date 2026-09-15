@@ -54,6 +54,31 @@ button.ghost {
   color: var(--ink);
 }
 
+button.text-link {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--green);
+  text-decoration: underline;
+}
+
+.import-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: #eaf6fc;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.import-button input {
+  display: none;
+}
+
 .app-shell {
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -872,6 +897,16 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.auth-signup-link {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.terminal-welcome {
+  margin-top: 16px;
+  font-weight: 700;
 }
 
 .app-footer {
