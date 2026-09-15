@@ -1616,7 +1616,7 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
         </button>
       </div>
       <nav className="online-manager-tabs" aria-label="管理画面の切り替え">
-        {[["shifts", "シフト"], ["attendance", "勤務状況"], ["staff", "スタッフ"], ["payroll", "給与計算"], ["management", "管理"]].map(([id, label]) => (
+        {[["shifts", "シフト"], ["attendance", "勤務状況"], ["staff", "スタッフ"], ["payroll", "給与計算"], ["management", "設定"]].map(([id, label]) => (
           <button className={activeTab === id ? "active" : ""} key={id} onClick={() => setActiveTab(id)} type="button">{label}</button>
         ))}
       </nav>
