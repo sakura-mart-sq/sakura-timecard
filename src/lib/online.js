@@ -1,4 +1,9 @@
-import { addDays, dateTimeFromDateKeyAndMinutes, dateTimeFromFields, dateKey, mondayOf, timeLabel } from "./time.js";
+import { addDays, dateTimeFromDateKeyAndMinutes, dateTimeFromFields, dateKey, mondayOf, timeLabel, timeToMinutes } from "./time.js";
+
+function minuteValue(value) {
+  if (typeof value === "string" && value.includes(":")) return timeToMinutes(value);
+  return Number(value);
+}
 
 function toShift(row) {
   return {
@@ -451,8 +456,8 @@ export async function saveOnlineShiftRequest(client, form, staffId) {
   const payload = {
     staff_id: staffId,
     work_date: form.date,
-    requested_start: Number(form.start),
-    requested_end: Number(form.end),
+    requested_start: minuteValue(form.start),
+    requested_end: minuteValue(form.end),
     note: form.note?.trim() || "",
     status: "submitted",
     manager_note: "",
