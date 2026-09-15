@@ -1007,6 +1007,12 @@ export default function App() {
             onNextWeek={() => setOnlineWeekStart((current) => addDays(current, 7))}
             onPreviousWeek={() => setOnlineWeekStart((current) => addDays(current, -7))}
             onRefresh={refreshOnlineData}
+            onRequest={openOnlineRequestDialog}
+            onWithdrawRequest={handleWithdrawOnlineRequest}
+            onRequestSwap={openOnlineSwapDialog}
+            onCancelSwap={handleCancelOnlineSwap}
+            onAcceptSwap={handleAcceptOnlineSwap}
+            staffId={onlineStaffId}
             onUpdateRequest={handleUpdateOnlineRequest}
           />
         ) : null}
