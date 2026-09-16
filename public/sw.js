@@ -1,10 +1,12 @@
-const CACHE_NAME = "sakura-mart-timecard-v1212";
+const CACHE_NAME = "sakura-mart-timecard-v1242";
 const APP_BASE = self.location.pathname.replace(/sw\.js$/, "");
 const APP_SHELL = [
   APP_BASE,
   `${APP_BASE}assets/app.js`,
   `${APP_BASE}assets/app.css`,
   `${APP_BASE}manifest.webmanifest`,
+  `${APP_BASE}manifest-terminal.webmanifest`,
+  `${APP_BASE}manifest-terminal-test.webmanifest`,
   `${APP_BASE}icon.svg`,
 ];
 

@@ -8,7 +8,17 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Sakura Mart">
-    <link rel="manifest" href="./manifest.webmanifest">
+    <script>
+      const manifestParams = new URLSearchParams(window.location.search);
+      const manifestLink = document.createElement("link");
+      manifestLink.rel = "manifest";
+      manifestLink.href = manifestParams.get("terminal") === "1"
+        ? manifestParams.get("mode") === "test"
+          ? "./manifest-terminal-test.webmanifest"
+          : "./manifest-terminal.webmanifest"
+        : "./manifest.webmanifest";
+      document.head.appendChild(manifestLink);
+    </script>
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
   </head>
   <body>
