@@ -1,9 +1,11 @@
 # Sakura Mart Timecard 現在の仕様・操作ガイド
 
-最終更新: 2026-09-15
-アプリバージョン: 1.2.46
+最終更新: 2026-09-16
+アプリバージョン: 1.2.48
 
 この文書は、現在のコードで実際に動作する内容をまとめたものです。将来の予定は「未実装」と明記します。
+
+掲載画像は操作説明用の架空データです。実在するスタッフ、メールアドレス、スタッフコード、給与ではありません。
 
 ## 1. アクセス先
 
@@ -42,6 +44,8 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 - シフトがないスタッフは打刻できない
 - 交代はオンライン画面で事前に確定しておく
 - 店舗端末では交代相手を選択しない
+
+![店舗打刻端末でスタッフコード入力後にシフトインする画面](images/current-operation-guide/store-terminal.png)
 
 店舗端末用URLでPWAをインストールすると、専用マニフェストの`start_url`により、PWA起動時も`?terminal=1`を保持します。テスト端末では`?mode=test&terminal=1`を保持します。通常版、店舗端末版、テスト店舗端末版は別のPWAとして識別されます。
 
@@ -157,6 +161,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 
 スタッフでログインすると、画面は英語表示です。
 
+![スタッフ用画面でシフト、交代募集、希望、公開済み給与を確認する画面](images/current-operation-guide/staff-portal.png)
+
 ### シフト確認
 
 - `My Shifts`: 自分の公開済みシフト
@@ -165,6 +171,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 - `No shift`: その日に自分の公開済みシフトがない
 
 ### シフト希望
+
+![スタッフがシフト希望を入力する画面](images/current-operation-guide/staff-shift-request.png)
 
 1. `Request shift` を押す
 2. `Date`, `Start`, `End`, `Note` を入力
@@ -177,6 +185,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 シフト希望の承認・却下は現在、管理者が管理画面で行います。承認すると、希望内容から公開シフトが自動作成され、シフト表に追加されます。
 
 ### シフト交代
+
+![スタッフが自分のシフトの交代を申請する画面](images/current-operation-guide/staff-shift-swap.png)
 
 1. 自分のシフト行にある `Request swap` を押す
 2. 必要なら `Note` を入力
@@ -207,6 +217,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 
 ### シフト
 
+![管理画面のシフトタブ](images/current-operation-guide/manager-shifts.png)
+
 - 前後の矢印で週を変更
 - 月曜日から日曜日までを一覧表示
 - シフトは日ごとに1行の8:00〜20:00タイムラインで表示
@@ -223,6 +235,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 
 ### 勤務状況
 
+![管理画面の勤務状況タブ](images/current-operation-guide/manager-attendance.png)
+
 - 前後の矢印で対象週を切り替え
 - 週の打刻実績を確認
 - 打刻の追加・変更
@@ -233,6 +247,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 
 ### スタッフ
 
+![管理画面のスタッフタブ](images/current-operation-guide/manager-staff.png)
+
 - スタッフ追加
 - 名前、時給、5桁スタッフコード、メールアドレスの編集
 - スタッフコードの表示
@@ -241,6 +257,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 - 「有効化」で再び利用可能にできる
 
 ### 給与計算
+
+![管理画面の給与計算タブ](images/current-operation-guide/manager-payroll.png)
 
 1. 開始日と終了日を指定
 2. 全スタッフ、または対象スタッフを選択
@@ -252,6 +270,8 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 給与は打刻実績から毎回計算されます。金額は小数第1位で四捨五入します。確定・公開された給与だけがスタッフ画面に表示されます。
 
 ### 設定
+
+![管理画面の設定タブ](images/current-operation-guide/manager-settings.png)
 
 - 「バックアップから復元」で旧localStorage版のJSONバックアップを取り込む
 - 対象はスタッフ、スタッフコード、シフト、打刻、店舗名、管理者パスコード、シフト希望、交代申請
@@ -357,4 +377,18 @@ Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functi
 
 ## 12. 現在の検証結果
 
-2026-09-15時点で、ローカルの自動テスト24件と本番ビルドが成功しています。Supabaseの本番・テストプロジェクトに対する実データ操作は、各プロジェクトで必要なSQLが適用済みかどうかに依存します。
+2026-09-16時点で、ローカルの自動テスト24件と本番ビルドが成功しています。Supabaseの本番・テストプロジェクトに対する実データ操作は、各プロジェクトで必要なSQLが適用済みかどうかに依存します。
+
+## 13. マニュアル画像の更新
+
+画面デザインや表示項目を変更した場合は、リポジトリ直下で次を実行します。
+
+```bash
+npm run docs:screenshots
+```
+
+画像は `docs/images/current-operation-guide/` に上書き生成されます。撮影ページは固定の架空データを使用し、Supabaseには接続しません。初回だけPlaywrightのChromiumが必要です。
+
+```bash
+npx playwright install chromium
+```

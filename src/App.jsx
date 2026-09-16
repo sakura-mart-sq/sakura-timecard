@@ -1590,7 +1590,7 @@ export default function App() {
   );
 }
 
-function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest, onRequestSwap, onCancelSwap, onAcceptSwap, staffId }) {
+export function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest, onRequestSwap, onCancelSwap, onAcceptSwap, staffId }) {
   const dates = data ? weekDates(data.weekStart) : [];
   return (
     <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
@@ -1662,7 +1662,7 @@ function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, on
   );
 }
 
-function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, onCodeChange, onCodeSubmit, onClockIn, onClockOut, onRefresh }) {
+export function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, onCodeChange, onCodeSubmit, onClockIn, onClockOut, onRefresh }) {
   const person = data?.staff?.find((item) => item.id === staffId);
   const activePunch = data?.punches?.find((punch) => punch.staffId === staffId && !punch.endAt);
   const shifts = data?.shifts?.filter((shift) => shift.staffId === staffId) || [];
@@ -1709,7 +1709,7 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
+export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -2037,7 +2037,7 @@ function SigninCard({ assigned, isSwap = false, onClockIn, shift }) {
   );
 }
 
-function TimeSelect({ allowEmpty = false, name, onChange, stepMinutes = 15, value }) {
+export function TimeSelect({ allowEmpty = false, name, onChange, stepMinutes = 15, value }) {
   const options = [];
   if (allowEmpty) options.push(<option key="empty" value="">未入力</option>);
   for (let minutes = 0; minutes < 24 * 60; minutes += stepMinutes) {
@@ -2047,7 +2047,7 @@ function TimeSelect({ allowEmpty = false, name, onChange, stepMinutes = 15, valu
   return <select className="time-select" name={name} value={value} onChange={(event) => onChange(event.target.value)}>{options}</select>;
 }
 
-function Dialog({ children, onClose }) {
+export function Dialog({ children, onClose }) {
   return (
     <div className="dialog" role="dialog" aria-modal="true" onClick={onClose}>
       <div onClick={(event) => event.stopPropagation()}>
