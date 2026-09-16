@@ -382,6 +382,30 @@ export default function App() {
     setOnlineSnapshot(null);
   }
 
+  async function handleChangeOnlinePassword(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "");
+    const confirmation = String(form.get("passwordConfirmation") || "");
+    if (password.length < 6) {
+      setOnlineDataError("パスワードは6文字以上にしてください。");
+      return;
+    }
+    if (password !== confirmation) {
+      setOnlineDataError("確認用パスワードが一致しません。");
+      return;
+    }
+    setOnlineDataError("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      setOnlineDataError(error.message || "パスワードを変更できませんでした。");
+      return;
+    }
+    event.currentTarget.reset();
+    window.alert("ログインパスワードを変更しました。");
+  }
+
   function openOnlineStaffDialog(person = null) {
     setOnlineStaffForm(person ? {
       id: person.id,
@@ -1009,6 +1033,7 @@ export default function App() {
             onExportPayroll={handleExportOnlinePayroll}
             onExportPayrollPdf={handleExportOnlinePayrollPdf}
             onSaveSettings={handleSaveOnlineSettings}
+            onChangePassword={handleChangeOnlinePassword}
             onUpdateRequest={handleUpdateOnlineRequest}
             showAllSwaps={onlineShowAllSwaps}
             onToggleAllSwaps={() => setOnlineShowAllSwaps((current) => !current)}
@@ -1684,7 +1709,7 @@ function OnlineTerminalPanel({ data, error, loading, staffId, code, codeError, o
   );
 }
 
-function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
+function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -1873,6 +1898,12 @@ function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAd
                 <label className="field"><span>店舗名</span><input name="storeName" required defaultValue={data.settings?.store_name || "Sakura Mart"} /></label>
                 <label className="field"><span>管理者パスコード</span><input name="adminPasscode" required type="password" defaultValue={data.settings?.admin_passcode || "1968"} /></label>
                 <button type="submit">保存</button>
+              </form>
+              <h3>ログインパスワード変更</h3>
+              <form className="passcode-form online-settings-form" onSubmit={onChangePassword}>
+                <label className="field"><span>新しいパスワード</span><input autoComplete="new-password" minLength="6" name="password" required type="password" /></label>
+                <label className="field"><span>新しいパスワード（確認）</span><input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" /></label>
+                <button type="submit">パスワード変更</button>
               </form>
             </> : null}
           </div>

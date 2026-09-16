@@ -1,7 +1,7 @@
 # Sakura Mart Timecard 現在の仕様・操作ガイド
 
 最終更新: 2026-09-15
-アプリバージョン: 1.2.42
+アプリバージョン: 1.2.44
 
 この文書は、現在のコードで実際に動作する内容をまとめたものです。将来の予定は「未実装」と明記します。
 
@@ -86,7 +86,74 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 
 確認リンクの戻り先は、サインアップしたURLの場所になります。PagesでサインアップすればPagesへ戻り、localhostでサインアップすればlocalhostへ戻ります。
 
-## 4. スタッフ画面の操作
+## 4. 管理者アカウントの追加
+
+新しい店舗マネージャーをオンライン管理者として追加する場合の手順です。既存の管理者アカウントは削除せず、複数の管理者を登録できます。
+
+### マネージャー本人が行うこと
+
+1. `?terminal=1`や`?mode=test`を付けずに、通常の本番URLを開く
+2. `Log in`を押す
+3. モーダル下部の`Sign Up`を押す
+4. 本人のメールアドレスと、本人が決めた6文字以上のパスワードを入力する
+5. `Sign Up`を押す
+6. Supabase Authから届いた確認メールのリンクを開く
+
+`A confirmation email was sent. Open the link, then log in.`はエラーではなく、確認メールを送信した案内です。この段階ではAuthユーザーが作成されただけで、まだ管理画面には入れません。
+
+### 開発担当者が行うこと
+
+本番SupabaseのSQL Editorで次を実行します。メールアドレスはマネージャー本人のものへ変更してください。
+
+```sql
+insert into public.profiles (id, role, staff_id, active)
+select
+  id,
+  'manager'::public.app_role,
+  null,
+  true
+from auth.users
+where lower(email) = lower('manager@example.com')
+on conflict (id) do update set
+  role = 'manager',
+  staff_id = null,
+  active = true;
+```
+
+続けて、登録結果を確認します。
+
+```sql
+select
+  u.email,
+  p.role,
+  p.staff_id,
+  p.active
+from public.profiles p
+join auth.users u on u.id = p.id
+where lower(u.email) = lower('manager@example.com');
+```
+
+次の状態なら登録完了です。
+
+```text
+role: manager
+staff_id: NULL
+active: true
+```
+
+マネージャー本人が通常URLへ戻り、Sign Up時のメールアドレスとパスワードで`Log in`します。管理者はスタッフ登録、5桁Staff Code、staff_idを必要としません。
+
+本番SupabaseとテストSupabaseのAuth・profilesは別管理です。テスト環境でも管理者にする場合は、`?mode=test`でSign Upし、テストSupabaseでも同じSQLを実行します。
+
+### 管理者のログインパスワード
+
+ログインできる管理者は、管理画面の「設定」→「ログインパスワード変更」で本人のパスワードを変更できます。新しいパスワードと確認用パスワードを入力します。これはSupabase Authの個人パスワードであり、店舗の管理パスコードとは別です。
+
+Forgot passwordは現在アプリに未実装ですが、実装時にEdge Functionは不要です。Supabase Authの`resetPasswordForEmail()`で再設定メールを送り、リンク先で`updateUser()`を呼び出せます。
+
+本人がログインできない場合、開発担当者はservice role keyをブラウザへ公開せず、安全なバックエンドまたはローカル管理スクリプトから`auth.admin.updateUserById()`を使ってパスワードを変更できます。`auth.users`をSQLで直接更新しません。
+
+## 5. スタッフ画面の操作
 
 スタッフでログインすると、画面は英語表示です。
 
@@ -132,7 +199,7 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 - 他スタッフのシフト、給与、メールアドレス、時給の閲覧
 - 管理者画面へのアクセス
 
-## 5. 管理者画面の操作
+## 6. 管理者画面の操作
 
 管理者でログインすると、画面は日本語表示です。タブは次の順番です。
 
@@ -194,8 +261,10 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 - 復元前に現在のデータを別途バックアップする
 - 店舗名を保存すると、見出しとブラウザのタイトルに反映される
 - Supabaseの `app_settings` テーブルが必要
+- 「ログインパスワード変更」で、ログイン中の管理者本人のSupabase Authパスワードを変更
+- ログインパスワードは6文字以上で、店舗の管理パスコードとは別管理
 
-## 6. データ保存先
+## 7. データ保存先
 
 | 画面 | 保存先 |
 |---|---|
@@ -205,7 +274,7 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 
 同じPages URLでも、`?mode=test` の有無でDBが変わります。テストデータが本番に出ない、または本番データがテストに出ないのは正常です。
 
-## 7. Supabaseで必要なSQL
+## 8. Supabaseで必要なSQL
 
 本番・テストの両方で、次のマイグレーションを番号順に一度ずつ実行します。
 
@@ -232,7 +301,7 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 
 `public.app_settings` が未作成でも、現在のアプリは設定以外の管理画面を表示できます。ただし店舗名保存とバックアップ設定の保存には、このSQLが必要です。
 
-## 8. 現在未実装の機能
+## 9. 現在未実装の機能
 
 - シフト交代申請の一斉メール通知
 - メール本文のボタンから直接交代を受諾する機能
@@ -242,7 +311,7 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 
 現状、新規スタッフのメールはスタッフ本人が `Sign Up` を実行したときにSupabase Authから送信されます。管理者がスタッフ情報を保存しただけでは送信されません。
 
-## 9. 動作確認時の確認順序
+## 10. 動作確認時の確認順序
 
 ### テスト環境
 
@@ -261,7 +330,7 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 
 テスト環境で確認が完了してから、同じ手順を本番URLで行います。本番URLでのテスト操作は本番データを変更します。
 
-## 10. 既知の表示・通信トラブル
+## 11. 既知の表示・通信トラブル
 
 ### `A confirmation email was sent...`
 
@@ -286,6 +355,6 @@ URLに `?terminal=1` を付けた画面です。Supabase Authのログインは�
 3. PWAを終了して再起動
 4. フッターのバージョンを確認
 
-## 11. 現在の検証結果
+## 12. 現在の検証結果
 
 2026-09-15時点で、ローカルの自動テスト24件と本番ビルドが成功しています。Supabaseの本番・テストプロジェクトに対する実データ操作は、各プロジェクトで必要なSQLが適用済みかどうかに依存します。

@@ -364,6 +364,10 @@ h2 {
   font-size: 16px;
 }
 
+.online-settings-form + h3 {
+  margin-top: 24px;
+}
+
 .online-staff-row {
   justify-content: space-between;
   padding: 8px 0;
