@@ -1,7 +1,7 @@
 # オンライン化機能 仕様・開発手順
 
 最終更新: 2026-09-15
-アプリバージョン: 1.2.51
+アプリバージョン: 1.2.52
 
 この文書は、現在のコードに合わせた仕様書です。日常の操作手順は [current-operation-guide.md](current-operation-guide.md) を参照してください。
 
@@ -362,7 +362,7 @@ npm run build
 git diff --check
 ```
 
-機能修正時は、画面のフッターに表示する`APP_VERSION`を更新し、テストとビルドを実行します。コミット後、GitHub ActionsのPagesデプロイ完了を確認します。
+機能修正時は、画面のフッターに表示する`APP_VERSION`を更新し、テストとビルドを実行します。Pagesビルド時に`APP_VERSION`がService Workerのキャッシュ名へ自動的に埋め込まれるため、バージョンごとに新しいアプリシェルへ更新されます。オンライン時は`no-store`でHTML・JavaScript・CSSを取得し、オフライン時だけキャッシュへフォールバックします。コミット後、GitHub ActionsのPagesデプロイ完了を確認します。
 
 本番へ反映する前に、次をテストDBで確認します。
 
