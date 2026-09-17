@@ -143,21 +143,23 @@ export async function fetchManagerSnapshot(client, weekStart, showAllSwaps = fal
 export async function fetchManagerPayrollSnapshot(client, startDate, endDate) {
   const start = dateTimeFromFields(startDate, "00:00").toISOString();
   const end = dateTimeFromFields(addDays(endDate, 1), "00:00").toISOString();
-  const [staffResult, codeResult, shiftResult, punchResult] = await Promise.all([
+  const [staffResult, codeResult, shiftResult, punchResult, payrollResult] = await Promise.all([
     client.from("staff").select("id, name, hourly_wage, active, email").order("name"),
     client.from("staff_codes").select("staff_id, code"),
     client.from("shifts").select("id, work_date, staff_id, start_minute, end_minute, note, status").gte("work_date", startDate).lte("work_date", endDate),
     client.from("punches").select("id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start").gte("clock_in", start).lt("clock_in", end).order("clock_in"),
+    client.from("payrolls").select("id, staff_id, period_start, period_end, total_minutes, total_pay, status, finalized_at").eq("period_start", startDate).eq("period_end", endDate),
   ]);
   if (staffResult.error) throw staffResult.error;
   if (codeResult.error) throw codeResult.error;
   if (shiftResult.error) throw shiftResult.error;
   if (punchResult.error) throw punchResult.error;
+  if (payrollResult.error) throw payrollResult.error;
   return {
     staff: (staffResult.data || []).map((row) => toStaff(row, (codeResult.data || []).find((item) => item.staff_id === row.id)?.code || "")),
     shifts: (shiftResult.data || []).map(toShift),
     punches: (punchResult.data || []).map(toPunch),
-    payrolls: [],
+    payrolls: payrollResult.data || [],
     shiftRequests: [],
     shiftSwaps: [],
     weekStart: startDate,
@@ -168,7 +170,8 @@ export async function fetchManagerPayrollSnapshot(client, startDate, endDate) {
 
 export async function fetchStaffSnapshot(client, staffId, weekStart) {
   const weekEnd = addDays(weekStart, 6);
-  const [shiftResult, payrollResult, requestResult, swapResult] = await Promise.all([
+  const [staffResult, shiftResult, payrollResult, requestResult, swapResult] = await Promise.all([
+    client.from("staff").select("id, name, hourly_wage, active, email").eq("id", staffId).single(),
     client
       .from("shifts")
       .select("id, work_date, staff_id, start_minute, end_minute, note, status")
@@ -197,11 +200,13 @@ export async function fetchStaffSnapshot(client, staffId, weekStart) {
       .eq("status", "open")
       .order("created_at", { ascending: false }),
   ]);
+  if (staffResult.error) throw staffResult.error;
   if (shiftResult.error) throw shiftResult.error;
   if (payrollResult.error) throw payrollResult.error;
   if (requestResult.error) throw requestResult.error;
   if (swapResult.error) throw swapResult.error;
   return {
+    person: toStaff(staffResult.data),
     shifts: (shiftResult.data || []).map(toShift),
     payrolls: payrollResult.data || [],
     shiftRequests: (requestResult.data || []).map(toShiftRequest),
@@ -257,11 +262,85 @@ async function deleteAllOnlineRows(client, table) {
   if (error) throw error;
 }
 
+async function fetchAllRows(client, table, columns) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client.from(table).select(columns).order("id").range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
+export async function fetchOnlineBackup(client) {
+  const [staffRows, codeRows, shiftRows, punchRows, payrollRows, requestRows, swapRows, settingsResult] = await Promise.all([
+    fetchAllRows(client, "staff", "id, name, hourly_wage, active, email"),
+    fetchAllRows(client, "staff_codes", "staff_id, code"),
+    fetchAllRows(client, "shifts", "id, work_date, staff_id, start_minute, end_minute, note, status"),
+    fetchAllRows(client, "punches", "id, staff_id, shift_id, scheduled_staff_id, clock_in, clock_out, payroll_from_actual_start"),
+    fetchAllRows(client, "payrolls", "id, staff_id, period_start, period_end, total_minutes, total_pay, status, finalized_at"),
+    fetchAllRows(client, "shift_requests", "id, staff_id, work_date, requested_start, requested_end, note, status, manager_note, created_at"),
+    fetchAllRows(client, "shift_swaps", "id, shift_id, from_staff_id, accepted_by, status, note, accepted_at, created_at"),
+    client.from("app_settings").select("store_name, admin_passcode").eq("id", true).maybeSingle(),
+  ]);
+  if (settingsResult.error) throw settingsResult.error;
+
+  const codes = new Map(codeRows.map((row) => [row.staff_id, row.code]));
+  return {
+    app: "sakura-mart-timecard",
+    version: 2,
+    source: "supabase",
+    exportedAt: new Date().toISOString(),
+    data: {
+      staff: staffRows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        wage: Number(row.hourly_wage),
+        code: codes.get(row.id) || "",
+        email: row.email || "",
+        active: row.active,
+      })),
+      shifts: shiftRows.map(toShift),
+      punches: punchRows.map(toPunch),
+      payrolls: payrollRows.map((row) => ({
+        id: row.id,
+        staffId: row.staff_id,
+        periodStart: row.period_start,
+        periodEnd: row.period_end,
+        totalMinutes: row.total_minutes,
+        totalPay: Number(row.total_pay),
+        status: row.status,
+        finalizedAt: row.finalized_at,
+      })),
+      shiftRequests: requestRows.map(toShiftRequest),
+      shiftSwaps: swapRows.map((row) => ({
+        id: row.id,
+        shiftId: row.shift_id,
+        fromStaffId: row.from_staff_id,
+        acceptedBy: row.accepted_by,
+        status: row.status,
+        note: row.note || "",
+        acceptedAt: row.accepted_at,
+        createdAt: row.created_at,
+      })),
+      storeName: settingsResult.data?.store_name || "Sakura Mart",
+      adminPasscode: settingsResult.data?.admin_passcode || "1968",
+    },
+  };
+}
+
 export async function importLegacyBackup(client, payload) {
   const data = payload?.data || payload;
   if (!Array.isArray(data?.staff) || !Array.isArray(data?.shifts) || !Array.isArray(data?.punches)) {
     throw new Error("Invalid timecard backup file.");
   }
+
+  const { data: profileLinks, error: profileError } = await client
+    .from("profiles")
+    .select("id, staff_id")
+    .not("staff_id", "is", null);
+  if (profileError) throw profileError;
 
   for (const table of ["shift_swaps", "shift_requests", "punches", "payrolls", "shifts", "staff_codes", "staff", "app_settings"]) {
     await deleteAllOnlineRows(client, table);
@@ -282,7 +361,7 @@ export async function importLegacyBackup(client, payload) {
       name: String(person.name || "Unnamed staff"),
       hourly_wage: Number(person.wage || 0),
       staff_code_hash: awaitHash(code),
-      active: true,
+      active: person.active !== false,
       email: person.email || null,
     };
   });
@@ -290,6 +369,13 @@ export async function importLegacyBackup(client, payload) {
   for (const row of staffRows) resolvedStaffRows.push({ ...row, staff_code_hash: await row.staff_code_hash });
   let result = await client.from("staff").upsert(resolvedStaffRows);
   if (result.error) throw result.error;
+
+  for (const profile of profileLinks || []) {
+    const restoredStaffId = staffIdMap.get(profile.staff_id);
+    if (!restoredStaffId) continue;
+    const { error } = await client.from("profiles").update({ staff_id: restoredStaffId }).eq("id", profile.id);
+    if (error) throw error;
+  }
 
   const codeRows = data.staff.map((person) => ({
     staff_id: staffIdMap.get(person.id),
@@ -334,6 +420,21 @@ export async function importLegacyBackup(client, payload) {
   });
   if (result.error) throw result.error;
 
+  const payrollRows = (data.payrolls || []).map((payroll) => ({
+    id: migrationId(payroll.id),
+    staff_id: staffIdMap.get(payroll.staffId || payroll.staff_id),
+    period_start: payroll.periodStart || payroll.period_start,
+    period_end: payroll.periodEnd || payroll.period_end,
+    total_minutes: Number(payroll.totalMinutes ?? payroll.total_minutes ?? 0),
+    total_pay: Number(payroll.totalPay ?? payroll.total_pay ?? 0),
+    status: ["calculated", "finalized", "published"].includes(payroll.status) ? payroll.status : "calculated",
+    finalized_at: payroll.finalizedAt || payroll.finalized_at || null,
+  })).filter((row) => row.staff_id && row.period_start && row.period_end);
+  if (payrollRows.length) {
+    result = await client.from("payrolls").upsert(payrollRows);
+    if (result.error) throw result.error;
+  }
+
   const requestRows = (data.shiftRequests || []).map((request) => ({
     id: migrationId(request.id),
     staff_id: staffIdMap.get(request.staffId || request.staff_id),
@@ -366,6 +467,7 @@ export async function importLegacyBackup(client, payload) {
     staff: staffRows.length,
     shifts: shiftRows.length,
     punches: punchRows.length,
+    payrolls: payrollRows.length,
     shiftRequests: requestRows.length,
     shiftSwaps: swapRows.length,
   };
@@ -474,7 +576,15 @@ export async function saveOnlineShiftRequest(client, form, staffId) {
     status: "submitted",
     manager_note: "",
   };
-  const { error } = await client.from("shift_requests").insert(payload);
+  const query = form.id
+    ? client.from("shift_requests").update({
+      work_date: payload.work_date,
+      requested_start: payload.requested_start,
+      requested_end: payload.requested_end,
+      note: payload.note,
+    }).eq("id", form.id)
+    : client.from("shift_requests").insert(payload);
+  const { error } = await query;
   if (error) throw error;
 }
 

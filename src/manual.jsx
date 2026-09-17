@@ -44,6 +44,7 @@ const managerData = {
 };
 
 const staffData = {
+  person: staff[0],
   shifts: shifts.filter((shift) => shift.staffId === "staff-alex" && shift.status === "published"),
   payrolls: [{ id: "payroll-1", period_start: "2026-09-01", period_end: "2026-09-15", total_minutes: 4080, total_pay: 1258.0, status: "published" }],
   shiftRequests: [{ id: "request-2", staffId: "staff-alex", date: "2026-09-20", start: 600, end: 960, note: "", status: "submitted" }],
@@ -74,8 +75,10 @@ const sharedManagerProps = {
   onPreviousWeek: noop,
   onRefresh: noop,
   onCalculatePayroll: prevent,
+  onSavePayroll: noop,
   onExportPayroll: noop,
   onExportPayrollPdf: noop,
+  onExportBackup: noop,
   onImportBackup: noop,
   onSaveSettings: prevent,
   onChangePassword: prevent,
@@ -94,14 +97,14 @@ function Frame({ children, language = "ja", account }) {
     <header className="topbar">
       <div><h1>Sakura Mart</h1><p>{language === "ja" ? "2026年9月16日（水）" : "Wednesday, September 16, 2026"}</p></div>
     </header>
-    {account ? <div className="online-bar"><span>{account}</span><button className="ghost" type="button">{language === "ja" ? "ログアウト" : "Log out"}</button></div> : null}
+    {account ? <div className="online-bar"><span>{account}</span><div className="account-menu"><button aria-label="Account menu" className="ghost account-menu-button" type="button">☰</button></div></div> : null}
     {children}
     <footer className="footer">Version {APP_VERSION}</footer>
   </div>;
 }
 
 function StaffFrame({ children }) {
-  return <Frame language="en" account="Online staff: alex@example.com">
+  return <Frame language="en" account="Hello, Alex (alex@example.com)">
     <OnlineStaffPanel {...{
       data: staffData, error: "", loading: false, onNextWeek: noop, onPreviousWeek: noop,
       onRefresh: noop, onRequest: noop, onWithdrawRequest: noop, onRequestSwap: noop,
@@ -154,7 +157,7 @@ function ManualApp() {
       onClockOut: noop, onRefresh: noop,
     }} /></Frame>;
   }
-  return <Frame account="Online manager: manager@example.com"><OnlineManagerPanel {...sharedManagerProps} /></Frame>;
+  return <Frame account="管理者 (manager@example.com)"><OnlineManagerPanel {...sharedManagerProps} /></Frame>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<ManualApp />);

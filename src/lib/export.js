@@ -12,6 +12,11 @@ function downloadFile(filename, content, type) {
   URL.revokeObjectURL(url);
 }
 
+export function exportBackupFile(backup) {
+  const stamp = backup.exportedAt.slice(0, 19).replace(/[:T]/g, "-");
+  downloadFile(`timecard-backup-${stamp}.json`, JSON.stringify(backup, null, 2), "application/json;charset=utf-8");
+}
+
 function csvValue(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
@@ -119,6 +124,5 @@ export function exportPdf(state, startDate, endDate, staffId = "all") {
 
 export function exportFullBackup(state) {
   const backup = buildBackup(state);
-  const stamp = backup.exportedAt.slice(0, 19).replace(/[:T]/g, "-");
-  downloadFile(`timecard-backup-${stamp}.json`, JSON.stringify(backup, null, 2), "application/json;charset=utf-8");
+  exportBackupFile(backup);
 }

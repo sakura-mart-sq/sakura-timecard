@@ -143,6 +143,39 @@ h2 {
   padding: 0 12px;
 }
 
+.account-menu {
+  position: relative;
+}
+
+.account-menu-button {
+  width: 40px;
+  padding: 0;
+  font-size: 22px;
+}
+
+.account-menu-popup {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 130px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(18 62 99 / 0.18);
+}
+
+.account-menu-popup button {
+  width: 100%;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .online-manager-panel {
   margin-bottom: 18px;
   padding: 18px;
@@ -1069,8 +1102,8 @@ select {
   }
 
   .online-bar {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .online-manager-heading,

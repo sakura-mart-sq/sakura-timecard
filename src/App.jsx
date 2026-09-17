@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { APP_VERSION, DEFAULT_ADMIN_PASSCODE, DEFAULT_STORE_NAME } from "./lib/constants.js";
-import { exportFullBackup, exportPdf, exportSheet } from "./lib/export.js";
+import { exportBackupFile, exportFullBackup, exportPdf, exportSheet } from "./lib/export.js";
 import {
   actualShiftTimes,
   applyClockIn,
@@ -37,6 +37,7 @@ import { loadState, saveState } from "./lib/storage.js";
 import {
   fetchManagerSnapshot,
   fetchManagerPayrollSnapshot,
+  fetchOnlineBackup,
   fetchStaffSnapshot,
   fetchTerminalSnapshot,
   findTerminalStaff,
@@ -112,7 +113,7 @@ const emptyOnlineShiftForm = (date, staffId = "") => ({
   note: "",
   status: "published",
 });
-const emptyOnlineRequestForm = (date) => ({ date, start: "09:00", end: "17:00", note: "" });
+const emptyOnlineRequestForm = (date) => ({ id: "", date, start: "09:00", end: "17:00", note: "" });
 
 export default function App() {
   const legacyLocalMode = typeof window !== "undefined"
@@ -173,6 +174,11 @@ export default function App() {
   const [onlinePayrollResult, setOnlinePayrollResult] = useState([]);
   const [onlinePayrollSource, setOnlinePayrollSource] = useState(null);
   const [onlineShowAllSwaps, setOnlineShowAllSwaps] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [pendingOnlineBackup, setPendingOnlineBackup] = useState(null);
+  const [showOnlineRestoreDialog, setShowOnlineRestoreDialog] = useState(false);
+  const [onlineRestoreError, setOnlineRestoreError] = useState("");
+  const [onlineRestoreLoading, setOnlineRestoreLoading] = useState(false);
 
   useEffect(() => {
     saveState(state);
@@ -357,19 +363,66 @@ export default function App() {
     }
   }
 
-  async function handleLegacyImport(event) {
+  async function handleOnlineBackupExport() {
+    if (!supabase) return;
+    setOnlineDataError("");
+    try {
+      exportBackupFile(await fetchOnlineBackup(supabase));
+    } catch (error) {
+      setOnlineDataError(error?.message || "バックアップを保存できませんでした。");
+    }
+  }
+
+  async function handleOnlineBackupSelection(event) {
     const [file] = event.target.files || [];
     if (!file || !supabase) return;
     try {
       const payload = JSON.parse(await file.text());
-      if (!window.confirm("バックアップの内容で現在の業務データを置き換えます。現在のスタッフ、シフト、打刻、給与、申請、設定は削除されます。続行する前に現在のデータを別途バックアップしましたか？")) return;
-      const result = await importLegacyBackup(supabase, payload);
-      await refreshOnlineData();
-      window.alert(`Imported ${result.staff} staff, ${result.shifts} shifts, ${result.punches} punches, ${result.shiftRequests} requests, and ${result.shiftSwaps} swaps.`);
+      const data = payload?.data || payload;
+      if (!Array.isArray(data?.staff) || !Array.isArray(data?.shifts) || !Array.isArray(data?.punches)) {
+        throw new Error("有効なタイムカードのバックアップファイルではありません。");
+      }
+      setPendingOnlineBackup({ payload, fileName: file.name });
+      setOnlineRestoreError("");
+      setShowOnlineRestoreDialog(true);
     } catch (error) {
-      setOnlineDataError(error?.message || "Could not import the backup file.");
+      setOnlineDataError(error?.message || "バックアップファイルを読み込めませんでした。");
     } finally {
       event.target.value = "";
+    }
+  }
+
+  async function handleOnlineBackupRestore(event) {
+    event.preventDefault();
+    if (!supabase || !pendingOnlineBackup || !onlineSession?.user?.email) return;
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "");
+    setOnlineRestoreLoading(true);
+    setOnlineRestoreError("");
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: onlineSession.user.email,
+      password,
+    });
+    if (authError) {
+      setOnlineRestoreLoading(false);
+      setOnlineRestoreError("管理者のログインパスワードが正しくありません。");
+      return;
+    }
+    const confirmed = window.confirm("本当に復元しますか？現在のスタッフ、シフト、打刻、給与、申請、設定は削除され、バックアップの内容に置き換わります。この操作は元に戻せません。");
+    if (!confirmed) {
+      setOnlineRestoreLoading(false);
+      return;
+    }
+    try {
+      const result = await importLegacyBackup(supabase, pendingOnlineBackup.payload);
+      await refreshOnlineData();
+      setShowOnlineRestoreDialog(false);
+      setPendingOnlineBackup(null);
+      window.alert(`復元しました。スタッフ ${result.staff}名、シフト ${result.shifts}件、打刻 ${result.punches}件、給与 ${result.payrolls}件、希望 ${result.shiftRequests}件、交代 ${result.shiftSwaps}件。`);
+    } catch (error) {
+      setOnlineRestoreError(error?.message || "バックアップを復元できませんでした。");
+    } finally {
+      setOnlineRestoreLoading(false);
     }
   }
 
@@ -524,8 +577,14 @@ export default function App() {
     }
   }
 
-  function openOnlineRequestDialog() {
-    setOnlineRequestForm(emptyOnlineRequestForm(dateKey(new Date())));
+  function openOnlineRequestDialog(request = null) {
+    setOnlineRequestForm(request ? {
+      id: request.id,
+      date: request.date,
+      start: minutesToTime(request.start),
+      end: minutesToTime(request.end),
+      note: request.note || "",
+    } : emptyOnlineRequestForm(dateKey(new Date())));
     setShowOnlineRequestDialog(true);
   }
 
@@ -534,6 +593,7 @@ export default function App() {
     if (!supabase || !onlineStaffId) return;
     const form = new FormData(event.currentTarget);
     const values = {
+      id: onlineRequestForm.id,
       date: String(form.get("date") || ""),
       start: String(form.get("start") || ""),
       end: String(form.get("end") || ""),
@@ -657,16 +717,19 @@ export default function App() {
   }
 
   async function handleSaveOnlinePayroll(row, status) {
-    if (!supabase || !onlineSnapshot || !onlineSession) return;
+    if (!supabase || !onlinePayrollSource || !onlineSession) return;
     try {
       await saveOnlinePayroll(
         supabase,
         row,
-        onlineSnapshot.weekStart,
-        onlineSnapshot.weekEnd,
+        onlinePayrollSource.weekStart,
+        onlinePayrollSource.weekEnd,
         status,
         onlineSession.user.id,
       );
+      setOnlinePayrollResult((current) => current.map((item) => (
+        item.person.id === row.person.id ? { ...item, status } : item
+      )));
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "給与データを保存できませんでした。");
@@ -687,7 +750,12 @@ export default function App() {
     try {
       const snapshot = await fetchManagerPayrollSnapshot(supabase, startDate, endDate);
       setOnlinePayrollSource(snapshot);
-      setOnlinePayrollResult(onlinePayrollRows(snapshot).filter((row) => staffId === "all" || row.person.id === staffId));
+      setOnlinePayrollResult(onlinePayrollRows(snapshot)
+        .filter((row) => staffId === "all" || row.person.id === staffId)
+        .map((row) => ({
+          ...row,
+          status: snapshot.payrolls.find((payroll) => payroll.staff_id === row.person.id)?.status || "",
+        })));
     } catch (error) {
       setOnlineDataError(error?.message || "給与を計算できませんでした。");
     }
@@ -728,6 +796,22 @@ export default function App() {
 
   useEffect(() => {
     if (terminalMode || onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId)) refreshOnlineData();
+  }, [onlineRole, onlineStaffId, onlineWeekStart, onlineShowAllSwaps]);
+
+  useEffect(() => {
+    const active = terminalMode || onlineRole === "manager" || onlineRole === "terminal" || (onlineRole === "staff" && onlineStaffId);
+    if (!active) return undefined;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshOnlineData();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [onlineRole, onlineStaffId, onlineWeekStart, onlineShowAllSwaps]);
 
   const today = dateKey(now);
@@ -998,8 +1082,13 @@ export default function App() {
           <div className="online-bar" role="status">
             {onlinePortalActive ? (
               <>
-                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "manager" ? "Online manager" : onlineRole === "terminal" ? "Terminal" : "Online staff"}: {onlineSession.user.email}</span>
-                <button className="ghost" onClick={handleOnlineLogout} type="button">{onlineRole === "manager" ? "ログアウト" : "Log out"}</button>
+                <span>{supabaseMode === "test" ? "TEST / " : ""}{onlineRole === "staff" ? `Hello, ${onlineSnapshot?.person?.name || "Staff"} (${onlineSession.user.email})` : `管理者 (${onlineSession.user.email})`}</span>
+                <div className="account-menu">
+                  <button aria-expanded={showAccountMenu} aria-label={onlineRole === "manager" ? "アカウントメニュー" : "Account menu"} className="ghost account-menu-button" onClick={() => setShowAccountMenu((current) => !current)} title={onlineRole === "manager" ? "アカウントメニュー" : "Account menu"} type="button">☰</button>
+                  {showAccountMenu ? <div className="account-menu-popup">
+                    <button className="ghost" onClick={() => { setShowAccountMenu(false); handleOnlineLogout(); }} type="button">{onlineRole === "manager" ? "ログアウト" : "Log out"}</button>
+                  </div> : null}
+                </div>
               </>
             ) : (
               <>
@@ -1032,13 +1121,14 @@ export default function App() {
             onCalculatePayroll={handleCalculateOnlinePayroll}
             onExportPayroll={handleExportOnlinePayroll}
             onExportPayrollPdf={handleExportOnlinePayrollPdf}
+            onExportBackup={handleOnlineBackupExport}
             onSaveSettings={handleSaveOnlineSettings}
             onChangePassword={handleChangeOnlinePassword}
             onUpdateRequest={handleUpdateOnlineRequest}
             showAllSwaps={onlineShowAllSwaps}
             onToggleAllSwaps={() => setOnlineShowAllSwaps((current) => !current)}
             payrollResult={onlinePayrollResult}
-            onImportBackup={handleLegacyImport}
+            onImportBackup={handleOnlineBackupSelection}
             onRefresh={refreshOnlineData}
             onRequest={openOnlineRequestDialog}
             onWithdrawRequest={handleWithdrawOnlineRequest}
@@ -1388,16 +1478,44 @@ export default function App() {
         </Dialog>
       ) : null}
 
+      {showOnlineRestoreDialog ? (
+        <Dialog onClose={() => {
+          if (onlineRestoreLoading) return;
+          setShowOnlineRestoreDialog(false);
+          setPendingOnlineBackup(null);
+          setOnlineRestoreError("");
+        }} title="バックアップから復元">
+          <form className="dialog-panel" onSubmit={handleOnlineBackupRestore}>
+            <h2>バックアップから復元</h2>
+            <p className="note">{pendingOnlineBackup?.fileName}</p>
+            <p className="error">現在の業務データを削除し、バックアップの内容ですべて置き換えます。</p>
+            <label className="field">
+              <span>管理者のログインパスワード</span>
+              <input autoComplete="current-password" name="password" required type="password" />
+            </label>
+            {onlineRestoreError ? <p className="error">{onlineRestoreError}</p> : null}
+            <div className="dialog-actions">
+              <button className="ghost" disabled={onlineRestoreLoading} onClick={() => {
+                setShowOnlineRestoreDialog(false);
+                setPendingOnlineBackup(null);
+                setOnlineRestoreError("");
+              }} type="button">キャンセル</button>
+              <button className="danger" disabled={onlineRestoreLoading} type="submit">{onlineRestoreLoading ? "確認中..." : "パスワードを確認して復元"}</button>
+            </div>
+          </form>
+        </Dialog>
+      ) : null}
+
       {showOnlineRequestDialog ? (
         <Dialog onClose={() => setShowOnlineRequestDialog(false)} title={onlineStaffEnglish ? "Shift Request" : "シフト希望"}>
           <form className="dialog-panel" onSubmit={handleSaveOnlineRequest}>
-            <h2>{onlineStaffEnglish ? "Submit a Shift Request" : "シフト希望を提出"}</h2>
+            <h2>{onlineStaffEnglish ? (onlineRequestForm.id ? "Edit Shift Request" : "Submit a Shift Request") : (onlineRequestForm.id ? "シフト希望を変更" : "シフト希望を提出")}</h2>
             <p className="note">{onlineStaffEnglish ? "Your request will be reviewed by the manager." : "提出した希望は管理者が確認します。"}</p>
             <label className="field"><span>{onlineStaffEnglish ? "Date" : "希望日"}</span><input name="date" required type="date" value={onlineRequestForm.date} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, date: event.target.value }))} /></label>
             <label className="field"><span>{onlineStaffEnglish ? "Start" : "開始"}</span><TimeSelect name="start" stepMinutes={15} value={onlineRequestForm.start} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, start: value }))} /></label>
             <label className="field"><span>{onlineStaffEnglish ? "End" : "終了"}</span><TimeSelect name="end" stepMinutes={15} value={onlineRequestForm.end} onChange={(value) => setOnlineRequestForm((current) => ({ ...current, end: value }))} /></label>
             <label className="field"><span>{onlineStaffEnglish ? "Note" : "備考"}</span><input name="note" value={onlineRequestForm.note} onChange={(event) => setOnlineRequestForm((current) => ({ ...current, note: event.target.value }))} /></label>
-            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineRequestDialog(false)} type="button">{onlineStaffEnglish ? "Cancel" : "キャンセル"}</button><button type="submit">{onlineStaffEnglish ? "Submit" : "提出"}</button></div>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineRequestDialog(false)} type="button">{onlineStaffEnglish ? "Cancel" : "キャンセル"}</button><button type="submit">{onlineStaffEnglish ? (onlineRequestForm.id ? "Save" : "Submit") : (onlineRequestForm.id ? "保存" : "提出")}</button></div>
           </form>
         </Dialog>
       ) : null}
@@ -1590,16 +1708,12 @@ export default function App() {
   );
 }
 
-export function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRefresh, onRequest, onWithdrawRequest, onRequestSwap, onCancelSwap, onAcceptSwap, staffId }) {
+export function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousWeek, onRequest, onWithdrawRequest, onRequestSwap, onCancelSwap, onAcceptSwap, staffId }) {
   const dates = data ? weekDates(data.weekStart) : [];
   return (
     <section className="online-manager-panel" aria-labelledby="onlineStaffHeading">
       <div className="online-manager-heading">
-        <div>
-          <p className="eyebrow">SUPABASE ONLINE</p>
-          <h2 id="onlineStaffHeading">My Shifts</h2>
-        </div>
-        <button className="ghost" disabled={loading} onClick={onRefresh} type="button">{loading ? "Loading..." : "Refresh"}</button>
+        <h2 id="onlineStaffHeading">My Shifts</h2>
         <button onClick={onRequest} type="button">Request shift</button>
       </div>
       {error ? <p className="error">{error}</p> : null}
@@ -1642,7 +1756,7 @@ export function OnlineStaffPanel({ data, error, loading, onNextWeek, onPreviousW
                 <span>{request.date}</span>
                 <span>{minutesToTime(request.start)} - {minutesToTime(request.end)}</span>
                 <span>{request.status}</span>
-                {request.status === "submitted" ? <button className="compact-edit ghost" onClick={() => onWithdrawRequest(request.id)} type="button">Withdraw</button> : null}
+                {request.status === "submitted" ? <span className="row-actions"><button className="compact-edit ghost" onClick={() => onRequest(request)} type="button">Edit</button><button className="compact-edit ghost" onClick={() => onWithdrawRequest(request.id)} type="button">Withdraw</button></span> : null}
               </div>
             )) : <p className="empty">No shift requests.</p>}
           </div>
@@ -1709,7 +1823,7 @@ export function OnlineTerminalPanel({ data, error, loading, staffId, code, codeE
   );
 }
 
-export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onExportPayroll, onExportPayrollPdf, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
+export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onSavePayroll, onExportPayroll, onExportPayrollPdf, onExportBackup, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
@@ -1860,6 +1974,11 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
                   <span>{row.person.name}</span>
                   <span>{row.hours.toFixed(2)}時間</span>
                   <strong>{row.pay.toFixed(1)}</strong>
+                  <span>{row.status === "published" ? "公開済み" : row.status === "finalized" ? "確定済み" : "未確定"}</span>
+                  <span className="row-actions">
+                    <button className="compact-edit ghost" onClick={() => onSavePayroll(row, "finalized")} type="button">確定</button>
+                    <button className="compact-edit secondary" onClick={() => onSavePayroll(row, "published")} type="button">公開</button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -1890,10 +2009,6 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
           </div>
           <div className="online-staff-list">
             {activeTab === "management" ? <>
-              <h3>バックアップ</h3>
-              <div className="online-actions">
-                <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
-              </div>
               <form className="passcode-form online-settings-form" onSubmit={onSaveSettings}>
                 <label className="field"><span>店舗名</span><input name="storeName" required defaultValue={data.settings?.store_name || "Sakura Mart"} /></label>
                 <label className="field"><span>管理者パスコード</span><input name="adminPasscode" required type="password" defaultValue={data.settings?.admin_passcode || "1968"} /></label>
@@ -1905,6 +2020,12 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
                 <label className="field"><span>新しいパスワード（確認）</span><input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" /></label>
                 <button type="submit">パスワード変更</button>
               </form>
+              <h3>バックアップ</h3>
+              <p className="note">スタッフ、シフト、打刻、給与、申請、店舗設定をJSONファイルへ保存します。</p>
+              <div className="online-actions">
+                <button className="secondary" onClick={onExportBackup} type="button">完全バックアップ保存</button>
+                <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
+              </div>
             </> : null}
           </div>
         </>
