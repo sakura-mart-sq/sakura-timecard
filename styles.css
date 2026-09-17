@@ -1057,6 +1057,10 @@ select {
 }
 
 .auth-signup-link {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 28px;
   margin-top: 14px;
   text-align: center;
 }
