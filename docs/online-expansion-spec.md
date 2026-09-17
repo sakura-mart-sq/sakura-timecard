@@ -1,7 +1,7 @@
 # オンライン化機能 仕様・開発手順
 
 最終更新: 2026-09-15
-アプリバージョン: 1.2.50
+アプリバージョン: 1.2.51
 
 この文書は、現在のコードに合わせた仕様書です。日常の操作手順は [current-operation-guide.md](current-operation-guide.md) を参照してください。
 
@@ -56,7 +56,7 @@ VITE_SUPABASE_TEST_ANON_KEY
 
 新しい管理者は本人が通常URLでSign Upしてメール確認を完了した後、開発担当者が`profiles`へ`role = 'manager'`、`staff_id = null`、`active = true`を登録します。管理者はstaffテーブルへの登録や5桁Staff Codeを必要としません。具体的なSQLと確認手順は[current-operation-guide.md](current-operation-guide.md)の「管理者アカウントの追加」を参照します。
 
-ログイン中の管理者は`auth.updateUser()`で本人のパスワードを変更できます。将来Forgot passwordを追加する場合はSupabase Auth標準の`resetPasswordForEmail()`を使用し、Edge Functionは必要ありません。開発担当者による強制変更は、service role keyを保持する安全なサーバー側処理から`auth.admin.updateUserById()`を使用します。
+ログイン中の管理者は`auth.updateUser()`で本人のパスワードを変更できます。ログインできない利用者は、Log in画面の`Forgot password?`からSupabase Auth標準の`resetPasswordForEmail()`で回復メールを送信し、`PASSWORD_RECOVERY`セッションで新しいパスワードを設定できます。Edge Functionは使用しません。開発担当者による強制変更は、service role keyを保持する安全なサーバー側処理から`auth.admin.updateUserById()`を使用します。
 
 ### 店舗端末
 

@@ -151,8 +151,11 @@ export default function App() {
   const [onlineStaffId, setOnlineStaffId] = useState("");
   const [onlineAuthLoading, setOnlineAuthLoading] = useState(supabaseConfigured);
   const [onlineAuthError, setOnlineAuthError] = useState("");
+  const [onlineAuthNotice, setOnlineAuthNotice] = useState("");
   const [onlineAuthMode, setOnlineAuthMode] = useState("login");
   const [showOnlineLogin, setShowOnlineLogin] = useState(false);
+  const [showPasswordRecovery, setShowPasswordRecovery] = useState(false);
+  const [passwordRecoveryError, setPasswordRecoveryError] = useState("");
   const [onlineSnapshot, setOnlineSnapshot] = useState(null);
   const [onlineDataLoading, setOnlineDataLoading] = useState(false);
   const [onlineDataError, setOnlineDataError] = useState("");
@@ -220,7 +223,13 @@ export default function App() {
         setOnlineRole("");
         setOnlineAuthError("");
       }
-      if (event === "SIGNED_IN") setShowOnlineLogin(false);
+      if (event === "PASSWORD_RECOVERY") {
+        setShowOnlineLogin(false);
+        setPasswordRecoveryError("");
+        setShowPasswordRecovery(true);
+      } else if (event === "SIGNED_IN") {
+        setShowOnlineLogin(false);
+      }
     });
     loadOnlineSession();
     return () => {
@@ -279,6 +288,7 @@ export default function App() {
     const password = String(form.get("password") || "");
     setOnlineAuthLoading(true);
     setOnlineAuthError("");
+    setOnlineAuthNotice("");
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setOnlineAuthLoading(false);
@@ -299,6 +309,7 @@ export default function App() {
     const password = String(form.get("password") || "");
     setOnlineAuthLoading(true);
     setOnlineAuthError("");
+    setOnlineAuthNotice("");
     const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -320,6 +331,61 @@ export default function App() {
     setOnlineAuthLoading(false);
     setShowOnlineLogin(false);
     event.currentTarget.reset();
+  }
+
+  async function handlePasswordResetRequest(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "").trim().toLowerCase();
+    const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    setOnlineAuthLoading(true);
+    setOnlineAuthError("");
+    setOnlineAuthNotice("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    setOnlineAuthLoading(false);
+    if (error) {
+      setOnlineAuthError(error.message || "Could not send the password reset email.");
+      return;
+    }
+    setOnlineAuthNotice("If an account exists for this email, a password reset link has been sent.");
+    event.currentTarget.reset();
+  }
+
+  async function handlePasswordRecovery(event) {
+    event.preventDefault();
+    if (!supabase) return;
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "");
+    const confirmation = String(form.get("passwordConfirmation") || "");
+    setPasswordRecoveryError("");
+    if (password.length < 6) {
+      setPasswordRecoveryError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmation) {
+      setPasswordRecoveryError("Passwords do not match.");
+      return;
+    }
+    setOnlineAuthLoading(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      setOnlineAuthLoading(false);
+      setPasswordRecoveryError(error.message || "Could not update the password.");
+      return;
+    }
+    await supabase.auth.signOut();
+    setOnlineAuthLoading(false);
+    setShowPasswordRecovery(false);
+    setOnlineAuthMode("login");
+    setOnlineAuthNotice("Password updated. Log in with your new password.");
+    setShowOnlineLogin(true);
+  }
+
+  async function closePasswordRecovery() {
+    if (supabase) await supabase.auth.signOut();
+    setShowPasswordRecovery(false);
+    setPasswordRecoveryError("");
   }
 
   async function handleTerminalCodeSubmit(event) {
@@ -1095,6 +1161,7 @@ export default function App() {
                 <span>{supabaseMode === "test" ? "TEST / Online portal" : "Online portal"}</span>
                 <button onClick={() => {
                   setOnlineAuthError("");
+                  setOnlineAuthNotice("");
                   setOnlineAuthMode("login");
                   setShowOnlineLogin(true);
                 }} type="button">Log in</button>
@@ -1425,25 +1492,51 @@ export default function App() {
       ) : null}
 
       {showOnlineLogin ? (
-        <Dialog onClose={() => setShowOnlineLogin(false)} title={onlineAuthMode === "signup" ? "Sign Up" : "Log in"}>
-          <form className="dialog-panel" onSubmit={onlineAuthMode === "signup" ? handleOnlineSignup : handleOnlineLogin}>
-            <h2>{onlineAuthMode === "signup" ? "Sign Up" : "Log in"}</h2>
-            <p className="note">{onlineAuthMode === "signup" ? "Use the email address registered by your manager." : "Use your registered email address and password."}</p>
+        <Dialog onClose={() => setShowOnlineLogin(false)} title={onlineAuthMode === "signup" ? "Sign Up" : onlineAuthMode === "forgot" ? "Reset password" : "Log in"}>
+          <form className="dialog-panel" onSubmit={onlineAuthMode === "signup" ? handleOnlineSignup : onlineAuthMode === "forgot" ? handlePasswordResetRequest : handleOnlineLogin}>
+            <h2>{onlineAuthMode === "signup" ? "Sign Up" : onlineAuthMode === "forgot" ? "Reset password" : "Log in"}</h2>
+            <p className="note">{onlineAuthMode === "signup" ? "Use the email address registered by your manager." : onlineAuthMode === "forgot" ? "Enter your registered email address." : "Use your registered email address and password."}</p>
             <label className="field">
               <span>Email</span>
               <input name="email" type="email" autoComplete="username" required />
             </label>
-            <label className="field">
+            {onlineAuthMode !== "forgot" ? <label className="field">
               <span>Password</span>
               <input name="password" type="password" autoComplete="current-password" required />
-            </label>
+            </label> : null}
             <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
+            {onlineAuthNotice ? <p className="note">{onlineAuthNotice}</p> : null}
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">Cancel</button>
-              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : onlineAuthMode === "signup" ? "Sign Up" : "Log in"}</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : onlineAuthMode === "signup" ? "Sign Up" : onlineAuthMode === "forgot" ? "Send reset link" : "Log in"}</button>
             </div>
             <div className="auth-signup-link">
-              <button className="text-link" onClick={() => { setOnlineAuthMode(onlineAuthMode === "signup" ? "login" : "signup"); setOnlineAuthError(""); }} type="button">{onlineAuthMode === "signup" ? "Back to Log in" : "Sign Up"}</button>
+              {onlineAuthMode === "login" ? <>
+                <button className="text-link" onClick={() => { setOnlineAuthMode("forgot"); setOnlineAuthError(""); setOnlineAuthNotice(""); }} type="button">Forgot password?</button>
+                <button className="text-link" onClick={() => { setOnlineAuthMode("signup"); setOnlineAuthError(""); setOnlineAuthNotice(""); }} type="button">Sign Up</button>
+              </> : <button className="text-link" onClick={() => { setOnlineAuthMode("login"); setOnlineAuthError(""); setOnlineAuthNotice(""); }} type="button">Back to Log in</button>}
+            </div>
+          </form>
+        </Dialog>
+      ) : null}
+
+      {showPasswordRecovery ? (
+        <Dialog onClose={closePasswordRecovery} title="Set new password">
+          <form className="dialog-panel" onSubmit={handlePasswordRecovery}>
+            <h2>Set new password</h2>
+            <p className="note">Enter a new password for your account.</p>
+            <label className="field">
+              <span>New password</span>
+              <input autoComplete="new-password" minLength="6" name="password" required type="password" />
+            </label>
+            <label className="field">
+              <span>Confirm new password</span>
+              <input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" />
+            </label>
+            <p className={`error ${passwordRecoveryError ? "" : "hidden"}`}>{passwordRecoveryError}</p>
+            <div className="dialog-actions">
+              <button className="ghost" onClick={closePasswordRecovery} type="button">Cancel</button>
+              <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : "Update password"}</button>
             </div>
           </form>
         </Dialog>
