@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App.jsx";
+import App, { PasswordField } from "./App.jsx";
 
 beforeEach(() => {
   window.history.replaceState({}, "", "?local=1");
@@ -16,6 +16,17 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("toggles password visibility with an accessible icon button", () => {
+    render(<PasswordField autoComplete="new-password" label="Password" minLength={6} name="password" />);
+
+    const input = screen.getByLabelText("Password");
+    expect(input).toHaveAttribute("type", "password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(input).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
+  });
+
   it("returns to a neutral screen after sign in", () => {
     localStorage.setItem("grocery-timecard-v1", JSON.stringify({
       staff: [{ id: "staff-a", name: "Aさん", wage: 20, code: "12345" }],

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { APP_VERSION, DEFAULT_ADMIN_PASSCODE, DEFAULT_STORE_NAME } from "./lib/constants.js";
 import { exportBackupFile, exportFullBackup, exportPdf, exportSheet } from "./lib/export.js";
 import {
@@ -307,9 +308,15 @@ export default function App() {
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") || "").trim().toLowerCase();
     const password = String(form.get("password") || "");
+    const passwordConfirmation = String(form.get("passwordConfirmation") || "");
     setOnlineAuthLoading(true);
     setOnlineAuthError("");
     setOnlineAuthNotice("");
+    if (password !== passwordConfirmation) {
+      setOnlineAuthLoading(false);
+      setOnlineAuthError("Passwords do not match.");
+      return;
+    }
     const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -323,7 +330,7 @@ export default function App() {
     }
     if (!data.session) {
       setOnlineAuthLoading(false);
-      setOnlineAuthError("A confirmation email was sent. Open the link, then log in.");
+      setOnlineAuthNotice("A confirmation email was sent. Open the link, then log in.");
       event.currentTarget.reset();
       return;
     }
@@ -345,10 +352,15 @@ export default function App() {
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
     setOnlineAuthLoading(false);
     if (error) {
-      setOnlineAuthError(error.message || "Could not send the password reset email.");
+      const message = error.message || "Could not send the password reset email.";
+      if (/security purposes|request this after|rate limit/i.test(message)) {
+        setOnlineAuthNotice("A password reset email was already sent. Please check your inbox.");
+      } else {
+        setOnlineAuthError(message);
+      }
       return;
     }
-    setOnlineAuthNotice("If an account exists for this email, a password reset link has been sent.");
+    setOnlineAuthNotice("A password reset email was sent. Please check your inbox.");
     event.currentTarget.reset();
   }
 
@@ -1500,12 +1512,20 @@ export default function App() {
               <span>Email</span>
               <input name="email" type="email" autoComplete="username" required />
             </label>
-            {onlineAuthMode !== "forgot" ? <label className="field">
-              <span>Password</span>
-              <input name="password" type="password" autoComplete="current-password" required />
-            </label> : null}
+            {onlineAuthMode !== "forgot" ? <PasswordField
+              autoComplete={onlineAuthMode === "signup" ? "new-password" : "current-password"}
+              label="Password"
+              minLength={onlineAuthMode === "signup" ? 6 : undefined}
+              name="password"
+            /> : null}
+            {onlineAuthMode === "signup" ? <PasswordField
+              autoComplete="new-password"
+              label="Confirm password"
+              minLength={6}
+              name="passwordConfirmation"
+            /> : null}
             <p className={`error ${onlineAuthError ? "" : "hidden"}`}>{onlineAuthError}</p>
-            {onlineAuthNotice ? <p className="note">{onlineAuthNotice}</p> : null}
+            {onlineAuthNotice ? <p className="auth-notice">{onlineAuthNotice}</p> : null}
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowOnlineLogin(false)} type="button">Cancel</button>
               <button disabled={onlineAuthLoading} type="submit">{onlineAuthLoading ? "Please wait..." : onlineAuthMode === "signup" ? "Sign Up" : onlineAuthMode === "forgot" ? "Send reset link" : "Log in"}</button>
@@ -1525,14 +1545,8 @@ export default function App() {
           <form className="dialog-panel" onSubmit={handlePasswordRecovery}>
             <h2>Set new password</h2>
             <p className="note">Enter a new password for your account.</p>
-            <label className="field">
-              <span>New password</span>
-              <input autoComplete="new-password" minLength="6" name="password" required type="password" />
-            </label>
-            <label className="field">
-              <span>Confirm new password</span>
-              <input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" />
-            </label>
+            <PasswordField autoComplete="new-password" label="New password" minLength={6} name="password" />
+            <PasswordField autoComplete="new-password" label="Confirm new password" minLength={6} name="passwordConfirmation" />
             <p className={`error ${passwordRecoveryError ? "" : "hidden"}`}>{passwordRecoveryError}</p>
             <div className="dialog-actions">
               <button className="ghost" onClick={closePasswordRecovery} type="button">Cancel</button>
@@ -2259,6 +2273,24 @@ export function TimeSelect({ allowEmpty = false, name, onChange, stepMinutes = 1
     options.push(<option key={label} value={label}>{label}</option>);
   }
   return <select className="time-select" name={name} value={value} onChange={(event) => onChange(event.target.value)}>{options}</select>;
+}
+
+export function PasswordField({ autoComplete, label, minLength, name }) {
+  const [visible, setVisible] = useState(false);
+  const Icon = visible ? EyeOff : Eye;
+  const actionLabel = visible ? "Hide password" : "Show password";
+
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <div className="password-input-wrap">
+        <input autoComplete={autoComplete} minLength={minLength} name={name} required type={visible ? "text" : "password"} />
+        <button aria-label={actionLabel} className="password-visibility-button" onClick={() => setVisible((current) => !current)} title={actionLabel} type="button">
+          <Icon aria-hidden="true" size={20} strokeWidth={2} />
+        </button>
+      </div>
+    </label>
+  );
 }
 
 export function Dialog({ children, onClose }) {

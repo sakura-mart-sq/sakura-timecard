@@ -31,6 +31,34 @@ select {
   font: inherit;
 }
 
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.password-input-wrap input {
+  padding-right: 48px;
+}
+
+.password-visibility-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.password-visibility-button:hover,
+.password-visibility-button:focus-visible {
+  background: var(--green-soft);
+  color: var(--ink);
+}
+
 button {
   min-height: 48px;
   border: 0;
@@ -982,6 +1010,11 @@ select {
 .error {
   color: var(--red);
   font-weight: 700;
+}
+
+.auth-notice {
+  color: var(--ink);
+  line-height: 1.5;
 }
 
 .dialog {
