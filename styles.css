@@ -727,7 +727,17 @@ select {
 }
 
 .payroll-controls {
-  grid-template-columns: 170px auto 170px minmax(180px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 170px) auto minmax(0, 170px) minmax(0, 1fr) auto auto;
+}
+
+.online-payroll-controls {
+  min-width: 0;
+}
+
+.online-payroll-controls input[type="date"] {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .list {
@@ -1260,6 +1270,11 @@ select {
   .payroll-controls > * {
     width: 100%;
     min-width: 0;
+  }
+
+  .online-payroll-controls input[type="date"] {
+    padding-inline: 6px;
+    font-size: 16px;
   }
 
   .week-switcher {
