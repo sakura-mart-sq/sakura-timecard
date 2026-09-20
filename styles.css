@@ -1252,6 +1252,16 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .payroll-controls {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .payroll-controls > * {
+    width: 100%;
+    min-width: 0;
+  }
+
   .week-switcher {
     width: 100%;
     grid-template-columns: 44px 1fr 44px;
