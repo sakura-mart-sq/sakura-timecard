@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.2.56";
+export const APP_VERSION = "1.2.57";
 export const STORE_KEY = "grocery-timecard-v1";
 export const TIME_ZONE = "America/Vancouver";
 export const DEFAULT_STORE_NAME = "Sakura Mart";
