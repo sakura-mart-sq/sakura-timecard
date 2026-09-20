@@ -328,6 +328,17 @@ export function upsertShift(state, shiftInput) {
     end: shiftInput.end,
   };
 
+  const overlaps = state.shifts.some((shift) => (
+    shift.id !== nextShift.id
+    && shift.date === nextShift.date
+    && shift.staffId === nextShift.staffId
+    && shift.end > nextShift.start
+    && shift.start < nextShift.end
+  ));
+  if (overlaps) {
+    return { state, error: "同じスタッフの勤務時間が重なるシフトは作成できません。" };
+  }
+
   if (shiftInput.id) {
     return {
       ...state,
@@ -339,6 +350,16 @@ export function upsertShift(state, shiftInput) {
     ...state,
     shifts: [...state.shifts, nextShift],
   };
+}
+
+export function deleteShift(state, shiftId) {
+  if (state.punches.some((punch) => punch.shiftId === shiftId)) {
+    return { state, error: "このシフトには打刻記録があるため削除できません。" };
+  }
+  if ((state.shiftSwaps || []).some((swap) => swap.shiftId === shiftId)) {
+    return { state, error: "このシフトには交代申請があるため削除できません。" };
+  }
+  return { state: { ...state, shifts: state.shifts.filter((shift) => shift.id !== shiftId) } };
 }
 
 export function updatePunchRecord(state, punchId, startDate, startTime, endDate, endTime, payrollFromActualStart = false) {

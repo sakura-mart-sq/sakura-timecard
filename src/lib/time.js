@@ -159,3 +159,8 @@ export function weekDayLabel(date, locale = "ja") {
   const names = ["日", "月", "火", "水", "木", "金", "土"];
   return `${value.getUTCMonth() + 1}/${value.getUTCDate()} (${names[value.getUTCDay()]})`;
 }
+
+export function shortDateLabel(date) {
+  const value = typeof date === "string" ? plainDateToUtcDate(date) : date;
+  return `${value.getUTCMonth() + 1}/${value.getUTCDate()}`;
+}
