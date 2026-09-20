@@ -5,12 +5,14 @@ import {
   applyEmergencyClockIn,
   createPunchRecord,
   createDefaultState,
+  deleteShift,
   payrollRows,
   paidMinutes,
   recentPunches,
   shiftPunch,
   signinChoicesForStaff,
   todaysTimelineShifts,
+  upsertShift,
   updatePunchRecord,
 } from "./model.js";
 
@@ -37,6 +39,25 @@ describe("model helpers", () => {
     expect(choices.own).toHaveLength(1);
     expect(choices.own[0].id).toBe("shift-a");
     expect(choices.swaps).toHaveLength(1);
+  });
+
+  it("rejects overlapping shifts for the same staff", () => {
+    const state = buildState();
+    const result = upsertShift(state, {
+      date: "2026-08-27",
+      staffId: "staff-a",
+      start: 15 * 60,
+      end: 17 * 60,
+    });
+    expect(result.error).toContain("重なる");
+    expect(result.state.shifts).toHaveLength(2);
+  });
+
+  it("deletes an unreferenced shift", () => {
+    const state = buildState();
+    const result = deleteShift(state, "shift-a");
+    expect(result.error).toBeUndefined();
+    expect(result.state.shifts.map((shift) => shift.id)).toEqual(["shift-b"]);
   });
 
   it("includes emergency help in today's timeline", () => {

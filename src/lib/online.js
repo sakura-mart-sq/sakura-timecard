@@ -566,6 +566,11 @@ export async function saveOnlineShift(client, form) {
   if (error) throw error;
 }
 
+export async function deleteOnlineShift(client, shiftId) {
+  const { error } = await client.from("shifts").delete().eq("id", shiftId);
+  if (error) throw error;
+}
+
 export async function saveOnlineShiftRequest(client, form, staffId) {
   const payload = {
     staff_id: staffId,

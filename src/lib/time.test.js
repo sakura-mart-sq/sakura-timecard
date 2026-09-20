@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, dateKey, dateTimeFromFields, mondayOf, roundToQuarter, weekDates } from "./time.js";
+import { addDays, dateKey, dateTimeFromFields, mondayOf, roundToQuarter, shortDateLabel, weekDates } from "./time.js";
 
 describe("time helpers", () => {
   it("uses Vancouver date keys", () => {
@@ -19,6 +19,10 @@ describe("time helpers", () => {
       "2026-08-30",
     ]);
     expect(addDays("2026-08-30", 1)).toBe("2026-08-31");
+  });
+
+  it("formats dates compactly for manager lists", () => {
+    expect(shortDateLabel("2026-09-19")).toBe("9/19");
   });
 
   it("converts Vancouver local fields into ISO timestamps", () => {

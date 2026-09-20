@@ -9,6 +9,7 @@ import {
   applyEmergencyClockIn,
   compactShiftStyle,
   createPunchRecord,
+  deleteShift,
   deleteStaffRecord,
   displayShiftLabel,
   displayShiftTimes,
@@ -57,6 +58,7 @@ import {
   updateOnlineShiftRequest,
   withdrawOnlineShiftRequest,
   cancelOnlineShiftSwap,
+  deleteOnlineShift,
 } from "./lib/online.js";
 import { supabase, supabaseConfigured, supabaseMode } from "./lib/supabase.js";
 import {
@@ -67,6 +69,7 @@ import {
   formatter,
   minutesToTime,
   mondayOf,
+  shortDateLabel,
   staffFormatter,
   timeLabel,
   timeToMinutes,
@@ -602,7 +605,7 @@ export default function App() {
   }
 
   async function handleDeleteOnlineStaff(person) {
-    if (!supabase) return;
+    if (!supabase || !person) return;
     const nextActive = !person.active;
     const message = nextActive
       ? `${person.name}を再び有効にしますか？`
@@ -615,6 +618,7 @@ export default function App() {
         .update({ active: nextActive })
         .eq("staff_id", person.id);
       if (profileError) throw profileError;
+      setShowOnlineStaffDialog(false);
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "スタッフを更新できませんでした。");
@@ -646,12 +650,41 @@ export default function App() {
       setOnlineDataError("スタッフと正しい勤務時間を指定してください。");
       return;
     }
+    const overlaps = (onlineSnapshot?.shifts || []).some((shift) => (
+      shift.id !== onlineShiftForm.id
+      && shift.date === onlineShiftForm.date
+      && shift.staffId === onlineShiftForm.staffId
+      && shift.end > start
+      && shift.start < end
+    ));
+    if (overlaps) {
+      setOnlineDataError("同じスタッフの勤務時間が重なるシフトは作成できません。");
+      return;
+    }
     try {
       await saveOnlineShift(supabase, { ...onlineShiftForm, start, end });
       setShowOnlineShiftDialog(false);
       await refreshOnlineData();
     } catch (error) {
       setOnlineDataError(error?.message || "シフトを保存できませんでした。");
+    }
+  }
+
+  async function handleDeleteOnlineShift() {
+    if (!supabase || !onlineShiftForm.id) return;
+    const hasPunches = (onlineSnapshot?.punches || []).some((punch) => punch.shiftId === onlineShiftForm.id);
+    const hasSwaps = (onlineSnapshot?.shiftSwaps || []).some((swap) => swap.shiftId === onlineShiftForm.id);
+    if (hasPunches || hasSwaps) {
+      setOnlineDataError("打刻または交代申請があるシフトは削除できません。");
+      return;
+    }
+    if (!window.confirm("このシフトを削除しますか？")) return;
+    try {
+      await deleteOnlineShift(supabase, onlineShiftForm.id);
+      setShowOnlineShiftDialog(false);
+      await refreshOnlineData();
+    } catch (error) {
+      setOnlineDataError(error?.message || "シフトを削除できませんでした。");
     }
   }
 
@@ -1049,13 +1082,29 @@ export default function App() {
       window.alert("終了時刻は開始時刻より後にしてください。");
       return;
     }
-    setState((current) => normalizeState(upsertShift(current, {
+    const result = upsertShift(state, {
       id: shiftForm.id,
       date: shiftForm.date,
       staffId: shiftForm.staffId,
       start,
       end,
-    })));
+    });
+    if (result.error) {
+      window.alert(result.error);
+      return;
+    }
+    setState(normalizeState(result.state));
+    setShowShiftDialog(false);
+  }
+
+  function handleDeleteShift() {
+    if (!shiftForm.id || !window.confirm("このシフトを削除しますか？")) return;
+    const result = deleteShift(state, shiftForm.id);
+    if (result.error) {
+      window.alert(result.error);
+      return;
+    }
+    setState(normalizeState(result.state));
     setShowShiftDialog(false);
   }
 
@@ -1148,12 +1197,12 @@ export default function App() {
             <h1 id="storeNameHeading">{state.storeName || DEFAULT_STORE_NAME}</h1>
             <p id="todayLabel">{view === "staff" ? staffFormatter.format(now) : formatter.format(now)}</p>
           </div>
-          <nav className="tabs" aria-label="画面切り替え">
-            {legacyLocalMode || (!supabaseConfigured && !terminalMode) ? <>
+          {legacyLocalMode || (!supabaseConfigured && !terminalMode) ? (
+            <nav className="tabs" aria-label="画面切り替え">
               <button className={`tab ${view === "staff" ? "active" : ""}`} onClick={() => switchToView("staff")} type="button">Staff</button>
               <button className={`tab ${view === "manager" ? "active" : ""}`} onClick={() => switchToView("manager")} type="button">Manager</button>
-            </> : null}
-          </nav>
+            </nav>
+          ) : null}
         </header>
 
         {supabaseConfigured && !terminalMode ? (
@@ -1565,7 +1614,7 @@ export default function App() {
             <label className="field"><span>{onlineStaffForm.id ? "新しいスタッフコード（変更時のみ）" : "スタッフコード"}</span><input inputMode="numeric" maxLength="5" pattern="[0-9]{5}" required={!onlineStaffForm.id} value={onlineStaffForm.code} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, code: event.target.value }))} /></label>
             <label className="field"><span>スタッフ用メールアドレス{onlineStaffForm.id ? "（本人のアカウント作成に使用）" : ""}</span><input autoComplete="email" required={!onlineStaffForm.id} type="email" value={onlineStaffForm.email} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, email: event.target.value }))} /></label>
             <label className="checkbox-field"><input checked={onlineStaffForm.active} onChange={(event) => setOnlineStaffForm((current) => ({ ...current, active: event.target.checked }))} type="checkbox" /><span>有効</span></label>
-            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineStaffDialog(false)} type="button">キャンセル</button>{onlineStaffForm.id ? <button className={onlineStaffForm.active ? "danger" : "ghost"} onClick={() => handleDeleteOnlineStaff(onlineSnapshot?.staff?.find((person) => person.id === onlineStaffForm.id))} type="button">{onlineStaffForm.active ? "削除" : "有効化"}</button> : null}<button type="submit">保存</button></div>
           </form>
         </Dialog>
       ) : null}
@@ -1580,7 +1629,7 @@ export default function App() {
             <label className="field"><span>終了</span><TimeSelect stepMinutes={15} value={onlineShiftForm.end} onChange={(value) => setOnlineShiftForm((current) => ({ ...current, end: value }))} /></label>
             <label className="field"><span>備考</span><input value={onlineShiftForm.note} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, note: event.target.value }))} /></label>
             <label className="field"><span>状態</span><select value={onlineShiftForm.status} onChange={(event) => setOnlineShiftForm((current) => ({ ...current, status: event.target.value }))}><option value="draft">下書き</option><option value="published">公開</option></select></label>
-            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineShiftDialog(false)} type="button">キャンセル</button><button type="submit">保存</button></div>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setShowOnlineShiftDialog(false)} type="button">キャンセル</button>{onlineShiftForm.id ? <button className="danger" onClick={handleDeleteOnlineShift} type="button">削除</button> : null}<button type="submit">保存</button></div>
           </form>
         </Dialog>
       ) : null}
@@ -1678,6 +1727,7 @@ export default function App() {
             </label>
             <div className="dialog-actions">
               <button className="ghost" onClick={() => setShowShiftDialog(false)} type="button">キャンセル</button>
+              {shiftForm.id ? <button className="danger" onClick={handleDeleteShift} type="button">削除</button> : null}
               <button type="submit">{shiftForm.id ? "保存" : "追加"}</button>
             </div>
           </form>
@@ -1932,6 +1982,7 @@ export function OnlineTerminalPanel({ data, error, loading, staffId, code, codeE
 
 export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShift, onAddStaff, onDeleteStaff, onEditPunch, onEditShift, onEditStaff, onNextWeek, onPreviousWeek, onRefresh, onCalculatePayroll, onSavePayroll, onExportPayroll, onExportPayrollPdf, onExportBackup, onImportBackup, onSaveSettings, onChangePassword, onUpdateRequest, onToggleAllSwaps, showAllSwaps, payrollResult }) {
   const [activeTab, setActiveTab] = useState("shifts");
+  const [settingsDialog, setSettingsDialog] = useState("");
   const staffById = new Map((data?.staff || []).map((person) => [person.id, person]));
   const dates = data ? weekDates(data.weekStart) : [];
   const timelineBounds = { start: 8 * 60, end: 20 * 60 };
@@ -1982,20 +2033,20 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
                 });
                 return <div className="online-shift-graph-row" key={date}>
                   <div className="online-shift-graph-date">{weekDayLabel(date, "ja")}</div>
-                  <div className="online-shift-graph-track" style={{ minHeight: `${Math.max(1, laneEnds.length) * 35}px` }}>
+                  <div className="online-shift-graph-track" style={{ minHeight: `${Math.max(1, laneEnds.length) * 32}px` }}>
                     {shifts.length ? shiftsWithLanes.map(({ shift, lane }) => (
                       <button
                         className={`online-shift-bar ${shift.status === "draft" ? "draft" : ""}`}
                         key={shift.id}
                         onClick={() => onEditShift(shift)}
-                        style={{ ...timelineStyle(shift, timelineBounds), top: `${5 + lane * 30}px` }}
+                        style={{ ...timelineStyle(shift, timelineBounds), top: `${4 + lane * 28}px` }}
                         title={`${staffById.get(shift.staffId)?.name || "未登録"} ${displayShiftLabel(shift)}`}
                         type="button"
                       >
                         <strong>{staffById.get(shift.staffId)?.name || "未登録"}</strong>
                         <span>{displayShiftLabel(shift)}</span>
                       </button>
-                    )) : <span className="online-shift-graph-empty">シフトなし</span>}
+                    )) : <span className="online-shift-graph-empty">No Staff</span>}
                   </div>
                 </div>;
               })}
@@ -2005,14 +2056,10 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
             {activeTab === "staff" ? <>
             <div className="online-actions"><button onClick={onAddStaff} type="button">スタッフ追加</button></div>
             {data.staff.length ? data.staff.map((person) => (
-              <div className="online-staff-row" key={person.id}>
-                <span>{person.name}</span>
-                <span>{person.active ? "有効" : "停止中"}</span>
-                <span>{person.wage.toFixed(2)} / 時間</span>
-                <span>コード {person.code || "未設定"}</span>
-                <button className="compact-edit ghost" onClick={() => onEditStaff(person)} type="button">変更</button>
-                <button className={person.active ? "compact-edit danger" : "compact-edit ghost"} onClick={() => onDeleteStaff(person)} type="button">{person.active ? "削除" : "有効化"}</button>
-              </div>
+              <button className="staff-directory-row" key={person.id} onClick={() => onEditStaff(person)} type="button">
+                <strong>{person.name}</strong>
+                <span>{person.code || "未設定"}</span>
+              </button>
             )) : <p className="empty">スタッフはまだ登録されていません。</p>}
             </> : null}
           </div>
@@ -2025,7 +2072,7 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
                 <tbody>
                   {data.shiftRequests.length ? data.shiftRequests.map((request) => (
                     <tr key={request.id}>
-                      <td>{request.date}</td>
+                      <td>{shortDateLabel(request.date)}</td>
                       <td>{staffById.get(request.staffId)?.name || "未登録"}</td>
                       <td>{minutesToTime(request.start)} - {minutesToTime(request.end)}</td>
                       <td>{request.status}</td>
@@ -2116,26 +2163,60 @@ export function OnlineManagerPanel({ data, error, loading, onAddPunch, onAddShif
           </div>
           <div className="online-staff-list">
             {activeTab === "management" ? <>
-              <form className="passcode-form online-settings-form" onSubmit={onSaveSettings}>
-                <label className="field"><span>店舗名</span><input name="storeName" required defaultValue={data.settings?.store_name || "Sakura Mart"} /></label>
-                <label className="field"><span>管理者パスコード</span><input name="adminPasscode" required type="password" defaultValue={data.settings?.admin_passcode || "1968"} /></label>
-                <button type="submit">保存</button>
-              </form>
-              <h3>ログインパスワード変更</h3>
-              <form className="passcode-form online-settings-form" onSubmit={onChangePassword}>
-                <label className="field"><span>新しいパスワード</span><input autoComplete="new-password" minLength="6" name="password" required type="password" /></label>
-                <label className="field"><span>新しいパスワード（確認）</span><input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" /></label>
-                <button type="submit">パスワード変更</button>
-              </form>
-              <h3>バックアップ</h3>
-              <p className="note">スタッフ、シフト、打刻、給与、申請、店舗設定をJSONファイルへ保存します。</p>
-              <div className="online-actions">
-                <button className="secondary" onClick={onExportBackup} type="button">完全バックアップ保存</button>
-                <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
+              <div className="settings-list">
+                <div className="settings-row">
+                  <div><span className="settings-label">店舗名</span><strong>{data.settings?.store_name || "Sakura Mart"}</strong></div>
+                  <button className="ghost" onClick={() => setSettingsDialog("store")} type="button">編集</button>
+                </div>
+                <div className="settings-row">
+                  <div><span className="settings-label">管理者パスコード</span><strong>設定済み</strong></div>
+                  <button className="ghost" onClick={() => setSettingsDialog("store")} type="button">編集</button>
+                </div>
+                <div className="settings-row">
+                  <div><span className="settings-label">ログインパスワード</span><strong>設定済み</strong></div>
+                  <button className="ghost" onClick={() => setSettingsDialog("password")} type="button">変更</button>
+                </div>
+                <div className="settings-row">
+                  <div><span className="settings-label">バックアップ</span><strong>保存・復元</strong></div>
+                  <button className="ghost" onClick={() => setSettingsDialog("backup")} type="button">開く</button>
+                </div>
               </div>
             </> : null}
           </div>
         </>
+      ) : null}
+      {settingsDialog === "store" ? (
+        <Dialog onClose={() => setSettingsDialog("")} title="店舗設定">
+          <form className="dialog-panel" onSubmit={async (event) => { await onSaveSettings(event); setSettingsDialog(""); }}>
+            <h2>店舗設定</h2>
+            <label className="field"><span>店舗名</span><input name="storeName" required defaultValue={data?.settings?.store_name || "Sakura Mart"} /></label>
+            <label className="field"><span>管理者パスコード</span><input inputMode="numeric" name="adminPasscode" required type="password" defaultValue={data?.settings?.admin_passcode || "1968"} /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setSettingsDialog("")} type="button">キャンセル</button><button type="submit">保存</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+      {settingsDialog === "password" ? (
+        <Dialog onClose={() => setSettingsDialog("")} title="ログインパスワード変更">
+          <form className="dialog-panel" onSubmit={async (event) => { await onChangePassword(event); setSettingsDialog(""); }}>
+            <h2>ログインパスワード変更</h2>
+            <label className="field"><span>新しいパスワード</span><input autoComplete="new-password" minLength="6" name="password" required type="password" /></label>
+            <label className="field"><span>新しいパスワード（確認）</span><input autoComplete="new-password" minLength="6" name="passwordConfirmation" required type="password" /></label>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setSettingsDialog("")} type="button">キャンセル</button><button type="submit">変更</button></div>
+          </form>
+        </Dialog>
+      ) : null}
+      {settingsDialog === "backup" ? (
+        <Dialog onClose={() => setSettingsDialog("")} title="バックアップ">
+          <div className="dialog-panel">
+            <h2>バックアップ</h2>
+            <p className="note">スタッフ、シフト、打刻、給与、申請、店舗設定をJSONファイルへ保存・復元します。</p>
+            <div className="backup-actions">
+              <button className="secondary" onClick={onExportBackup} type="button">完全バックアップ保存</button>
+              <label className="import-button">バックアップから復元<input accept="application/json,.json" onChange={onImportBackup} type="file" /></label>
+            </div>
+            <div className="dialog-actions"><button className="ghost" onClick={() => setSettingsDialog("")} type="button">閉じる</button></div>
+          </div>
+        </Dialog>
       ) : null}
     </section>
   );
